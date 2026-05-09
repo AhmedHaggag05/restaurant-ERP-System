@@ -104,15 +104,16 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.getenv('DB_NAME', ''),
-        'USER': os.getenv('DB_USER', ''),
-        'PASSWORD': os.getenv('DB_PASS', ''),
-        'HOST': os.getenv('DB_HOST', '127.0.0.1'),
-        'PORT': os.getenv('DB_PORT', '3306'),
+        'ENGINE': 'django_tidb',
+        'NAME': 'test',
+        'USER': '4SRzDFPavnmyeEV.root',
+        'PASSWORD': 'zDe2s1Feokm71Env',
+        'HOST': 'gateway01.eu-central-1.prod.aws.tidbcloud.com',
+        'PORT': 4000,
         'OPTIONS': {
-            'charset': 'utf8mb4',
-        },
+            'ssl_mode': 'VERIFY_IDENTITY',
+            'ssl': {'ca': '<CA_PATH>'}
+        }
     },
 }
 
