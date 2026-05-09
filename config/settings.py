@@ -20,11 +20,7 @@ load_dotenv(BASE_DIR.parent / ".env")
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
 
-ALLOWED_HOSTS = [
-    "127.0.0.1",
-    "localhost",
-    os.getenv("HOST_FQDN", ""),
-]
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'restaurant-erp-live.onrender.com', '.onrender.com']
 
 CSRF_TRUSTED_ORIGINS = [
     origin for origin in [
