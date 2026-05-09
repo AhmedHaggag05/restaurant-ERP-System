@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
+import certifi
 from pathlib import Path
 import os
 from dotenv import load_dotenv
@@ -112,7 +112,7 @@ DATABASES = {
         'PORT': 4000,
         'OPTIONS': {
             'ssl_mode': 'VERIFY_IDENTITY',
-            'ssl': {'ca': '<CA_PATH>'}
+            'ssl': {'ca': certifi.where()},
         }
     },
 }
