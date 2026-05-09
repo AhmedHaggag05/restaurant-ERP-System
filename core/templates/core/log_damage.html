@@ -1,0 +1,299 @@
+{% extends 'erp_base.html' %}
+{% block title %}Log Damage — {{ order.order_number }}{% endblock %}
+{% block page_title %}Log Damaged Items{% endblock %}
+
+{% block extra_css %}
+<style>
+.item-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 1rem 1.2rem;
+    margin-bottom: .8rem;
+    background: #fff;
+    transition: border-color .15s, box-shadow .15s;
+}
+.item-card.has-selection {
+    border-color: #FF4500;
+    background: #fff8f6;
+    box-shadow: 0 2px 14px rgba(255,69,0,.1);
+}
+.ing-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .45rem .5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .1s;
+    user-select: none;
+}
+.ing-row:hover { background: #f9f9f9; }
+.item-card.has-selection .ing-row:hover { background: #fff0eb; }
+.ing-checkbox {
+    width: 20px; height: 20px;
+    border-radius: 5px;
+    border: 2px solid #d1d5db;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    font-size: .75rem;
+    transition: all .12s;
+    color: transparent;
+}
+.ing-row.ticked .ing-checkbox {
+    background: #FF4500;
+    border-color: #FF4500;
+    color: #fff;
+}
+.ing-name { font-weight: 600; font-size: .88rem; }
+.ing-qty  { font-size: .78rem; color: #6b7280; }
+.ing-row.ticked .ing-qty { color: #c2410c; font-weight: 600; }
+.item-header {
+    display: flex;
+    align-items: center;
+    justify-content: between;
+    gap: .75rem;
+    margin-bottom: .6rem;
+    padding-bottom: .6rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+.item-name { font-weight: 700; font-size: .95rem; }
+.ordered-badge {
+    font-size: .7rem; font-weight: 700;
+    background: #f0f0f0; color: #555;
+    padding: .18rem .55rem; border-radius: 999px;
+}
+.portions-row {
+    display: flex; align-items: center; gap: .5rem;
+    margin-top: .5rem; padding-top: .5rem;
+    border-top: 1px dashed #f0e0d8;
+}
+.portions-row label { font-size: .78rem; color: #888; }
+.port-btn {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 1.5px solid #d1d5db; background: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .85rem; cursor: pointer; font-weight: 700;
+    transition: border-color .1s;
+}
+.port-btn:hover { border-color: #FF4500; color: #FF4500; }
+.port-val { min-width: 22px; text-align: center; font-weight: 700; color: #FF4500; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Log Damage <span style="color:#FF4500;">{{ order.order_number }}</span></h1>
+        <p class="erp-page-sub">Pick which ingredients from each item were damaged — quantities come from the recipe automatically</p>
+    </div>
+    <a href="{% url 'dashboard' %}" class="btn btn-light btn-erp">
+        <i class="bi bi-arrow-left me-1"></i> Cancel
+    </a>
+</div>
+
+<div class="row g-4">
+
+    <!-- Left: order info + live summary -->
+    <div class="col-lg-4">
+        <div class="erp-card p-4">
+            <div class="erp-card-header mb-3 px-0 pt-0"><i class="bi bi-receipt me-1"></i> Order</div>
+            <table class="w-100" style="font-size:.85rem;">
+                <tr><td class="text-muted pb-2">Order #</td><td class="fw-bold text-end text-vibrant">{{ order.order_number }}</td></tr>
+                <tr><td class="text-muted pb-2">Time</td><td class="text-end">{{ order.created_at|date:"d M Y H:i" }}</td></tr>
+                <tr><td class="text-muted pb-2">Total</td><td class="fw-bold text-end">{{ order.total_price|floatformat:2 }} EGP</td></tr>
+            </table>
+        </div>
+
+        <div class="erp-card p-4 mt-3" id="summary-card" style="display:none;">
+            <div class="erp-card-header mb-3 px-0 pt-0">
+                <i class="bi bi-exclamation-triangle me-1 text-danger"></i> Will be deducted
+            </div>
+            <div id="summary-list" class="small"></div>
+            <div class="mt-2 pt-2 small text-muted" style="border-top:1px solid #f0f0f0;">
+                Quantities = recipe amount × damaged portions.
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: items with ingredient checkboxes -->
+    <div class="col-lg-8">
+        <div class="erp-card p-4">
+            <div class="erp-card-header mb-1 px-0 pt-0">
+                <i class="bi bi-exclamation-triangle me-1"></i> Select Damaged Ingredients
+            </div>
+            <p class="text-muted small mb-4">
+                For each menu item, tick only the ingredients that were damaged.
+                Set how many portions were affected. Quantities are <strong>auto-filled from the recipe</strong>.
+            </p>
+
+            {% if not order_items %}
+            <div class="text-center text-muted py-5">
+                <i class="bi bi-box display-1 text-light d-block mb-2"></i>
+                No recipe data found for this order's items.
+            </div>
+            {% else %}
+            <form method="post" id="damage-form">
+                {% csrf_token %}
+
+                {% for oi in order_items %}
+                <div class="item-card" id="card-{{ oi.oi_id }}">
+                    <div class="item-header">
+                        <span class="item-name">{{ oi.item_name }}</span>
+                        <span class="ordered-badge">ordered: ×{{ oi.ordered_qty }}</span>
+                        <span class="ms-auto small text-muted" id="card-count-{{ oi.oi_id }}"></span>
+                    </div>
+
+                    <!-- Ingredient rows -->
+                    {% for r in oi.recipe %}
+                    <div class="ing-row" id="ingrow-{{ oi.oi_id }}-{{ forloop.counter0 }}"
+                         onclick="toggleIng({{ oi.oi_id }}, {{ forloop.counter0 }})">
+                        <div class="ing-checkbox" id="chk-{{ oi.oi_id }}-{{ forloop.counter0 }}">
+                            <i class="bi bi-check2"></i>
+                        </div>
+                        <span class="ing-name">{{ r.name }}</span>
+                        <span class="ing-qty" id="qty-label-{{ oi.oi_id }}-{{ forloop.counter0 }}">
+                            {{ r.qty_per_portion|floatformat:3 }} {{ r.unit }} / portion
+                        </span>
+                    </div>
+                    {% endfor %}
+
+                    <!-- Portions selector — only show when ≥1 ingredient ticked -->
+                    <div class="portions-row" id="portions-row-{{ oi.oi_id }}" style="display:none;">
+                        <label>Damaged portions:</label>
+                        <button type="button" class="port-btn"
+                            onclick="changePort({{ oi.oi_id }}, -1, {{ oi.ordered_qty }})">−</button>
+                        <span class="port-val" id="pval-{{ oi.oi_id }}">1</span>
+                        <button type="button" class="port-btn"
+                            onclick="changePort({{ oi.oi_id }}, +1, {{ oi.ordered_qty }})">+</button>
+                        <span class="small text-muted">/ {{ oi.ordered_qty }} ordered</span>
+                    </div>
+
+                    <!-- Hidden inputs -->
+                    <input type="hidden" name="damaged_oi_id"       id="hid-oi-{{ oi.oi_id }}"      value="{{ oi.oi_id }}" disabled>
+                    <input type="hidden" name="portions_{{ oi.oi_id }}" id="hid-port-{{ oi.oi_id }}" value="1">
+                    <!-- Ticked ingredient indices as comma-separated list -->
+                    <input type="hidden" name="ticked_{{ oi.oi_id }}"  id="hid-ticked-{{ oi.oi_id }}" value="">
+                </div>
+                {% endfor %}
+
+                <!-- Global reason -->
+                <div class="mt-4 pt-3" style="border-top:1px solid #f0f0f0;">
+                    <label class="erp-form-label">Damage Reason <span class="text-danger">*</span></label>
+                    <input type="text" name="damage_reason_global" class="erp-input"
+                           placeholder="e.g. Burnt during cooking, Dropped, Spilled..." required>
+                </div>
+
+                <div class="d-flex gap-2 justify-content-end mt-4">
+                    <a href="{% url 'dashboard' %}" class="btn btn-light rounded-pill px-4">Cancel</a>
+                    <button type="submit" id="submit-btn"
+                            class="btn rounded-pill px-5 fw-bold"
+                            style="background:#FF4500;color:#fff;" disabled>
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        Log Damage (<span id="sel-count">0</span> ingredients)
+                    </button>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Recipe data: { oiId: [ {name, qtyPerPortion, unit}, ... ] }
+const RECIPES = {
+{% for oi in order_items %}
+    "{{ oi.oi_id }}": [{% for r in oi.recipe %}
+        { name:"{{ r.name|escapejs }}", qty:{{ r.qty_per_portion }}, unit:"{{ r.unit|escapejs }}" },{% endfor %}
+    ],
+{% endfor %}
+};
+
+// ticked[oiId] = Set of ingredient indices
+const ticked = {};
+// portions[oiId] = int
+const portions = {};
+
+{% for oi in order_items %}
+ticked["{{ oi.oi_id }}"]   = new Set();
+portions["{{ oi.oi_id }}"] = 1;
+{% endfor %}
+
+function toggleIng(oiId, idx) {
+    const key  = String(oiId);
+    const row  = document.getElementById('ingrow-' + oiId + '-' + idx);
+    const chk  = document.getElementById('chk-'    + oiId + '-' + idx);
+
+    if (ticked[key].has(idx)) {
+        ticked[key].delete(idx);
+        row.classList.remove('ticked');
+    } else {
+        ticked[key].add(idx);
+        row.classList.add('ticked');
+    }
+
+    // Show/hide portions row
+    const hasAny = ticked[key].size > 0;
+    document.getElementById('portions-row-' + oiId).style.display = hasAny ? 'flex' : 'none';
+    document.getElementById('card-' + oiId).classList.toggle('has-selection', hasAny);
+
+    // Enable/disable hidden oi input
+    document.getElementById('hid-oi-' + oiId).disabled = !hasAny;
+
+    // Write ticked indices
+    document.getElementById('hid-ticked-' + oiId).value = Array.from(ticked[key]).join(',');
+
+    updateUI();
+}
+
+function changePort(oiId, delta, maxQty) {
+    const key = String(oiId);
+    portions[key] = Math.max(1, Math.min(maxQty, portions[key] + delta));
+    document.getElementById('pval-'     + oiId).textContent       = portions[key];
+    document.getElementById('hid-port-' + oiId).value             = portions[key];
+    updateUI();
+}
+
+function updateUI() {
+    // Count total ticked ingredients across all items
+    let totalTicked = 0;
+    for (const s of Object.values(ticked)) totalTicked += s.size;
+
+    document.getElementById('submit-btn').disabled = totalTicked === 0;
+    document.getElementById('sel-count').textContent = totalTicked;
+
+    // Build live summary: aggregate by ingredient name+unit
+    const summaryCard = document.getElementById('summary-card');
+    const summaryList = document.getElementById('summary-list');
+
+    if (totalTicked === 0) { summaryCard.style.display = 'none'; return; }
+    summaryCard.style.display = '';
+
+    const totals = {};  // "name|unit" -> qty
+    for (const [oiIdStr, idxSet] of Object.entries(ticked)) {
+        if (idxSet.size === 0) continue;
+        const recipe = RECIPES[oiIdStr] || [];
+        const p = portions[oiIdStr] || 1;
+        idxSet.forEach(idx => {
+            const r = recipe[idx];
+            if (!r) return;
+            const key = r.name + '|' + r.unit;
+            totals[key] = (totals[key] || 0) + r.qty * p;
+        });
+    }
+
+    let html = '';
+    for (const [key, qty] of Object.entries(totals)) {
+        const [name, unit] = key.split('|');
+        html += `<div class="d-flex justify-content-between py-1" style="border-bottom:1px solid #f9f9f9;">
+            <span class="fw-semibold">${name}</span>
+            <span class="text-danger fw-bold">−${qty.toFixed(3)} ${unit}</span>
+        </div>`;
+    }
+    summaryList.innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', updateUI);
+</script>
+{% endblock %}

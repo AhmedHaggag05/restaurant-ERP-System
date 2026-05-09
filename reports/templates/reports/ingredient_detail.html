@@ -1,0 +1,188 @@
+{% extends "erp_base.html" %}
+{% block title %}Ingredient Detail Report{% endblock %}
+{% block page_title %}Ingredient Detail Report{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Ingredient Detail Report</h1>
+        <p class="erp-page-sub">Full purchase history, supplier traceability, and damage log per ingredient</p>
+    </div>
+    <a href="{% url 'reports:hub' %}" class="btn btn-light btn-erp"><i class="bi bi-arrow-left me-1"></i> Reports</a>
+</div>
+
+<!-- Filter form -->
+<div class="erp-card p-4 mb-4">
+    <div class="erp-card-header mb-3 px-0 pt-0"><i class="bi bi-funnel me-1"></i> Select Ingredients & Date Range</div>
+    <form method="get" id="filter-form">
+        <div class="row g-3 align-items-start">
+            <div class="col-md-5">
+                <label class="erp-form-label">Ingredients</label>
+                <div class="border rounded-3 p-2" style="max-height:200px;overflow-y:auto;background:#fff;">
+                    <div class="mb-1 pb-1" style="border-bottom:1px solid #f0f0f0;">
+                        <input type="checkbox" id="chk-all" class="form-check-input me-1"
+                            {% if show_all %}checked{% endif %}
+                            onchange="toggleAll(this)">
+                        <label for="chk-all" class="small fw-bold text-muted">All Ingredients</label>
+                    </div>
+                    {% for ing in all_ingredients %}
+                    <div class="form-check py-1" style="border-bottom:1px solid #f9fafa;">
+                        <input class="form-check-input ing-chk" type="checkbox"
+                            name="ingredients" value="{{ ing.id }}"
+                            id="ing{{ ing.id }}"
+                            {% if ing.id in selected_ids %}checked{% endif %}
+                            onchange="document.getElementById('chk-all').checked=false;document.querySelector('input[name=show_all]').value=''">
+                        <label class="form-check-label small" for="ing{{ ing.id }}">
+                            <strong>{{ ing.name }}</strong>
+                            <span class="text-muted">({{ ing.stock_quantity|floatformat:2 }} {{ ing.unit }})</span>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                <input type="hidden" name="show_all" id="show-all-val" value="{% if show_all %}1{% endif %}">
+            </div>
+            <div class="col-md-4">
+                <label class="erp-form-label">Date From</label>
+                <input type="date" name="date_from" value="{{ date_from }}" class="erp-input mb-2">
+                <label class="erp-form-label">Date To</label>
+                <input type="date" name="date_to" value="{{ date_to }}" class="erp-input">
+            </div>
+            <div class="col-md-3 d-flex flex-column gap-2 pt-1">
+                <button type="submit" class="btn btn-primary-erp btn-erp">
+                    <i class="bi bi-search me-1"></i> Generate Report
+                </button>
+                {% if results %}
+                <a href="{% url 'reports:ingredient_detail_pdf' %}?{% for id in selected_ids %}ingredients={{ id }}&{% endfor %}{% if show_all %}show_all=1&{% endif %}date_from={{ date_from }}&date_to={{ date_to }}"
+                   class="btn btn-erp" style="background:#dc2626;color:#fff;">
+                    <i class="bi bi-file-earmark-pdf me-1"></i> PDF
+                </a>
+                <a href="{% url 'reports:ingredient_detail_excel' %}?{% for id in selected_ids %}ingredients={{ id }}&{% endfor %}{% if show_all %}show_all=1&{% endif %}date_from={{ date_from }}&date_to={{ date_to }}"
+                   class="btn btn-erp" style="background:#15803d;color:#fff;">
+                    <i class="bi bi-file-earmark-excel me-1"></i> Excel
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</div>
+
+{% if results %}
+{% for res in results %}
+{% with ing=res.ingredient %}
+<div class="erp-card mb-4">
+    <!-- Header -->
+    <div class="erp-card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-box me-1"></i> <strong>{{ ing.name }}</strong> &bull; {{ ing.unit }}</span>
+        <div class="d-flex gap-3 text-sm">
+            <span class="text-muted small">Stock: <strong>{{ ing.stock_quantity|floatformat:3 }} {{ ing.unit }}</strong></span>
+            <span class="text-muted small">Cost/unit: <strong>{{ ing.cost_per_unit|floatformat:4 }} EGP</strong></span>
+            <span class="text-muted small">Stock value: <strong style="color:#FF4500;">{{ ing.stock_quantity|floatformat:2 }} × {{ ing.cost_per_unit|floatformat:4 }} EGP</strong></span>
+        </div>
+    </div>
+
+    <!-- Purchase History -->
+    <div class="px-4 pt-3 pb-1">
+        <div class="fw-bold small text-uppercase text-secondary mb-2"><i class="bi bi-truck me-1"></i> Purchase History</div>
+    </div>
+    {% if res.po_lines %}
+    <div class="table-responsive">
+        <table class="erp-table">
+            <thead>
+                <tr>
+                    <th>PO #</th><th>Supplier</th><th>Date Received</th>
+                    <th class="text-end">Qty Ordered</th><th class="text-end">Qty Received</th>
+                    <th class="text-end">Unit Cost (EGP)</th><th class="text-end">Total Paid (EGP)</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for line in res.po_lines %}
+            <tr>
+                <td><a href="{% url 'purchasing:po_detail' line.purchase_order.id %}" class="fw-bold text-vibrant text-decoration-none">{{ line.purchase_order.po_number }}</a></td>
+                <td>{{ line.purchase_order.supplier.name }}</td>
+                <td>{{ line.purchase_order.received_date|default:"—" }}</td>
+                <td class="text-end">{{ line.quantity_ordered|floatformat:3 }}</td>
+                <td class="text-end fw-semibold text-success">{{ line.quantity_received|floatformat:3 }}</td>
+                <td class="text-end">{{ line.unit_cost|floatformat:4 }}</td>
+                <td class="text-end fw-bold">{{ line.quantity_received|floatformat:3 }} × {{ line.unit_cost|floatformat:4 }} EGP</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr style="background:#fff5f2;">
+                    <td colspan="4" class="text-end fw-bold">Totals</td>
+                    <td class="text-end fw-bold text-success">{{ res.total_restocked|floatformat:3 }} {{ ing.unit }}</td>
+                    <td></td>
+                    <td class="text-end fw-bold" style="color:#FF4500;">{{ res.total_restock_cost|floatformat:2 }} EGP</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% else %}
+    <div class="px-4 pb-3 small text-muted">No purchase records for this period.</div>
+    {% endif %}
+
+    <!-- Damage Log -->
+    <div class="px-4 pt-3 pb-1" style="border-top:1px solid #f0f0f0;margin-top:.5rem;">
+        <div class="fw-bold small text-uppercase text-secondary mb-2"><i class="bi bi-exclamation-triangle me-1 text-danger"></i> Damage / Wastage Log</div>
+    </div>
+    {% if res.damage_logs %}
+    <div class="table-responsive">
+        <table class="erp-table">
+            <thead>
+                <tr>
+                    <th>Date</th><th class="text-end">Qty Damaged</th><th>Unit</th>
+                    <th class="text-end">Est. Cost (EGP)</th><th>Linked Order</th>
+                    <th>Reason</th><th>By</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for d in res.damage_logs %}
+            <tr>
+                <td>{{ d.created_at|date:"d M Y H:i" }}</td>
+                <td class="text-end fw-bold text-danger">-{{ d.qty_damaged|floatformat:3 }}</td>
+                <td>{{ d.unit }}</td>
+                <td class="text-end text-danger">{{ d.qty_damaged|floatformat:3 }} × {{ ing.cost_per_unit|floatformat:4 }} EGP</td>
+                <td>{% if d.order %}<a href="{% url 'receipt' d.order.order_number %}" class="text-vibrant fw-semibold text-decoration-none" target="_blank">{{ d.order.order_number }}</a>{% else %}—{% endif %}</td>
+                <td class="small text-muted">{{ d.reason|default:"—" }}</td>
+                <td class="small">{{ d.recorded_by.username|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr style="background:#fff5f2;">
+                    <td class="fw-bold">Total Damage</td>
+                    <td class="text-end fw-bold text-danger">-{{ res.total_damaged|floatformat:3 }}</td>
+                    <td>{{ ing.unit }}</td>
+                    <td class="text-end fw-bold text-danger">{{ res.total_damage_cost|floatformat:2 }} EGP</td>
+                    <td colspan="3"></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% else %}
+    <div class="px-4 pb-3 small text-muted">No damage records for this period.</div>
+    {% endif %}
+</div>
+{% endwith %}
+{% endfor %}
+
+{% elif request.GET %}
+<div class="erp-card p-5 text-center text-muted">
+    <i class="bi bi-search display-1 text-light d-block mb-3"></i>
+    No results. Select at least one ingredient or "All Ingredients" and click Generate Report.
+</div>
+{% else %}
+<div class="erp-card p-5 text-center text-muted">
+    <i class="bi bi-box-seam display-1 text-light d-block mb-3"></i>
+    Select ingredients above and click <strong>Generate Report</strong> to see detailed purchase and damage history.
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleAll(chk) {
+    document.getElementById('show-all-val').value = chk.checked ? '1' : '';
+    document.querySelectorAll('.ing-chk').forEach(c => c.checked = false);
+}
+</script>
+{% endblock %}

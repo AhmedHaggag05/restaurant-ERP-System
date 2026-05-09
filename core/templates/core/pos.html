@@ -1,0 +1,541 @@
+{% extends 'base.html' %}
+{% block title %}POS | Searing Sandwiches{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .pos-wrapper {
+        display: flex;
+        gap: 0;
+        height: calc(100vh - 80px);
+        overflow: hidden;
+    }
+
+    /* ── Left: Menu Panel ───────────────────────────────────────────────── */
+    .menu-panel {
+        flex: 1 1 0;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 1.5rem 1.5rem 1rem 1.5rem;
+        overflow: hidden;
+    }
+    .menu-panel-header { flex-shrink: 0; margin-bottom: 1rem; }
+    .menu-scroll { flex: 1 1 0; overflow-y: auto; padding-right: 4px; }
+    .menu-scroll::-webkit-scrollbar { width: 4px; }
+    .menu-scroll::-webkit-scrollbar-track { background: transparent; }
+    .menu-scroll::-webkit-scrollbar-thumb { background: #e0e0e0; border-radius: 4px; }
+
+    /* ── Menu Cards ─────────────────────────────────────────────────────── */
+    .menu-item-card {
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 2px solid #f0f0f0;
+        border-radius: 18px;
+        background: white;
+        height: 100%;
+        overflow: hidden;
+        user-select: none;
+    }
+    .menu-item-card:hover {
+        border-color: var(--primary-vibrant);
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(255, 69, 0, 0.12);
+    }
+    .menu-item-card:active { transform: scale(0.96); }
+    .item-icon {
+        width: 52px; height: 52px;
+        background-color: var(--primary-soft);
+        color: var(--primary-vibrant);
+        border-radius: 14px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.5rem; margin: 0 auto 0.75rem;
+        transition: all 0.2s;
+    }
+    .menu-item-card:hover .item-icon { background-color: var(--primary-vibrant); color: white; }
+    .cat-badge {
+        font-size: .6rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .06em;
+        color: var(--primary-vibrant); opacity: .75;
+        margin-bottom: .25rem;
+    }
+
+    /* ── Category Tabs ──────────────────────────────────────────────────── */
+    .cat-btn { font-size: .8rem; font-weight: 600; padding: .3rem .9rem; transition: all .15s; }
+    .cat-btn.active {
+        background: var(--primary-vibrant) !important;
+        border-color: var(--primary-vibrant) !important;
+        color: white !important;
+    }
+
+    /* ── Right: Cart Panel ──────────────────────────────────────────────── */
+    .cart-panel {
+        flex: 0 0 420px;
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        border-left: 1px solid #f0f0f0;
+        box-shadow: -4px 0 24px rgba(0,0,0,0.06);
+    }
+    .cart-header {
+        flex-shrink: 0;
+        padding: 1.25rem 1.5rem 1rem;
+        border-bottom: 1px solid #f5f5f5;
+    }
+    .cart-header-title {
+        font-size: 1.15rem; font-weight: 800; color: #111;
+        display: flex; align-items: center; gap: .6rem;
+    }
+    .cart-count-badge {
+        background: var(--primary-vibrant); color: white;
+        font-size: .7rem; font-weight: 700;
+        min-width: 22px; height: 22px; border-radius: 999px;
+        display: inline-flex; align-items: center; justify-content: center; padding: 0 6px;
+    }
+
+    /* ── Cart Items Area ────────────────────────────────────────────────── */
+    .cart-items-area { flex: 1 1 0; overflow-y: auto; padding: .75rem 1.25rem; }
+    .cart-items-area::-webkit-scrollbar { width: 4px; }
+    .cart-items-area::-webkit-scrollbar-track { background: transparent; }
+    .cart-items-area::-webkit-scrollbar-thumb { background: #e5e5e5; border-radius: 4px; }
+
+    .empty-cart {
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; height: 100%; color: #bbb; gap: .5rem;
+    }
+    .empty-cart i { font-size: 3rem; }
+    .empty-cart span { font-size: .9rem; font-weight: 500; }
+
+    /* ── Individual Cart Item ───────────────────────────────────────────── */
+    .cart-item {
+        display: flex; align-items: center; gap: .75rem;
+        background: #fafafa; border: 1.5px solid #f0f0f0;
+        border-radius: 14px; padding: .85rem 1rem; margin-bottom: .6rem;
+        transition: border-color .15s;
+    }
+    .cart-item:hover { border-color: var(--primary-vibrant); background: #fff8f6; }
+    .cart-item-info { flex: 1 1 0; min-width: 0; }
+    .cart-item-name { font-size: 1rem; font-weight: 700; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cart-item-unit { font-size: .8rem; color: #888; margin-top: 2px; }
+    .cart-item-line-total { font-size: 1.1rem; font-weight: 800; color: var(--primary-vibrant); min-width: 70px; text-align: right; }
+
+    /* ── Qty Controls ───────────────────────────────────────────────────── */
+    .qty-control {
+        display: flex; align-items: center;
+        border: 1.5px solid #e8e8e8; border-radius: 10px;
+        overflow: hidden; background: white;
+    }
+    .qty-btn {
+        width: 34px; height: 34px; border: none; background: none;
+        font-size: 1.1rem; font-weight: 700; color: #444;
+        cursor: pointer; display: flex; align-items: center; justify-content: center;
+        transition: background .15s, color .15s; flex-shrink: 0;
+    }
+    .qty-btn:hover { background: var(--primary-soft); color: var(--primary-vibrant); }
+    .qty-btn.minus:hover { background: #fff0ee; color: #e53e3e; }
+    .qty-num {
+        font-size: 1rem; font-weight: 800; color: #111;
+        min-width: 32px; text-align: center;
+        border-left: 1.5px solid #f0f0f0; border-right: 1.5px solid #f0f0f0;
+        line-height: 34px;
+    }
+
+    /* ── Cart Footer ────────────────────────────────────────────────────── */
+    .cart-footer { flex-shrink: 0; padding: .9rem 1.25rem 1.25rem; border-top: 1px solid #f0f0f0; background: #fafafa; }
+    .cart-footer-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: .65rem; }
+    .footer-label { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #888; margin-bottom: 3px; }
+    .footer-input {
+        font-size: .85rem; border: 1.5px solid #e8e8e8; border-radius: 9px;
+        padding: .4rem .65rem; width: 100%; background: white;
+        transition: border-color .15s; outline: none;
+    }
+    .footer-input:focus { border-color: var(--primary-vibrant); }
+
+    .promo-row { margin-bottom: .75rem; }
+    .promo-wrap { display: flex; gap: .4rem; }
+    .promo-input {
+        flex: 1; font-size: .85rem; font-family: monospace; text-transform: uppercase;
+        border: 1.5px solid #e8e8e8; border-radius: 9px; padding: .4rem .7rem;
+        background: white; outline: none; transition: border-color .15s;
+    }
+    .promo-input:focus { border-color: var(--primary-vibrant); }
+    .promo-apply-btn {
+        font-size: .82rem; font-weight: 700; padding: .4rem .9rem; border-radius: 9px;
+        background: #111; color: white; border: none; cursor: pointer;
+        transition: background .15s; white-space: nowrap;
+    }
+    .promo-apply-btn:hover { background: var(--primary-vibrant); }
+    .promo-success { color: #16a34a; font-size: .8rem; margin-top: 4px; }
+    .promo-error   { color: #dc2626; font-size: .8rem; margin-top: 4px; }
+
+    .totals-block { margin-bottom: .75rem; }
+    .totals-row { display: flex; justify-content: space-between; align-items: baseline; padding: .2rem 0; }
+    .totals-row .label { font-size: .82rem; color: #888; }
+    .totals-row .value { font-size: .9rem; font-weight: 700; color: #333; }
+    .totals-row.discount .label { color: #16a34a; }
+    .totals-row.discount .value { color: #16a34a; }
+    .totals-divider { border: none; border-top: 1.5px solid #ececec; margin: .4rem 0; }
+    .totals-final { display: flex; justify-content: space-between; align-items: center; }
+    .totals-final .label { font-size: 1rem; font-weight: 800; color: #111; }
+    .totals-final .value { font-size: 1.6rem; font-weight: 900; color: var(--primary-vibrant); line-height: 1; }
+
+    .place-order-btn {
+        width: 100%; padding: .9rem; border: none; border-radius: 14px;
+        background: var(--primary-vibrant); color: white;
+        font-size: 1rem; font-weight: 800; letter-spacing: .04em;
+        text-transform: uppercase; cursor: pointer; transition: all .2s;
+        display: flex; align-items: center; justify-content: center; gap: .5rem;
+    }
+    .place-order-btn:hover:not(:disabled) {
+        background: #e03e00; transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(255,69,0,.3);
+    }
+    .place-order-btn:disabled { background: #e0e0e0; color: #aaa; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    @media (max-width: 991.98px) {
+        .pos-wrapper { flex-direction: column; height: auto; overflow: visible; }
+        .cart-panel { flex: none; border-left: none; border-top: 2px solid #f0f0f0; box-shadow: 0 -4px 20px rgba(0,0,0,.05); }
+        .cart-items-area { max-height: 300px; }
+        .menu-panel { height: auto; overflow: visible; }
+        .menu-scroll { overflow: visible; height: auto; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pos-wrapper animate-fade-in">
+
+    <!-- ═══════════════════ MENU PANEL ═══════════════════════════════════ -->
+    <div class="menu-panel">
+        <div class="menu-panel-header">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <div>
+                    <h2 class="section-title mb-0">Our Menu</h2>
+                    <p class="text-secondary small mb-0">Tap an item to add it to the order</p>
+                </div>
+                <div class="input-group" style="max-width:280px;">
+                    <span class="input-group-text bg-white border-end-0 border" style="border-radius:12px 0 0 12px;">
+                        <i class="bi bi-search text-secondary"></i>
+                    </span>
+                    <input type="text" id="menu-search" class="form-control border-start-0"
+                           placeholder="Search menu..." style="border-radius:0 12px 12px 0;">
+                </div>
+            </div>
+
+            {% if categories %}
+            <div class="d-flex flex-wrap gap-2" id="category-tabs">
+                <button class="btn btn-sm cat-btn active rounded-pill" data-cat="all">All</button>
+                {% for cat in categories %}
+                <button class="btn btn-sm btn-outline-secondary cat-btn rounded-pill" data-cat="{{ cat.id }}">{{ cat.name }}</button>
+                {% endfor %}
+                <button class="btn btn-sm btn-outline-secondary cat-btn rounded-pill" data-cat="none">Uncategorised</button>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="menu-scroll">
+            <div class="row g-3" id="menu-grid">
+                {% for item in menu_items %}
+                <div class="col-6 col-sm-4 col-xl-3 menu-card-wrapper"
+                     data-name="{{ item.name|lower }}"
+                     data-cat="{{ item.category.id|default:'none' }}">
+                    <div class="card menu-item-card p-3"
+                         onclick="addToCart({{ item.id }}, '{{ item.name }}', {{ item.price }})">
+                        <div class="card-body text-center p-1">
+                            {% if item.category %}<div class="cat-badge">{{ item.category.name }}</div>{% endif %}
+                            <div class="item-icon"><i class="bi bi-egg-fried"></i></div>
+                            <h6 class="fw-bold mb-1 text-truncate" style="font-size:.95rem;">{{ item.name }}</h6>
+                            <p class="text-vibrant fw-bold mb-0" style="font-size:1.05rem;">
+                                {{ item.price|floatformat:2 }} <small class="fw-normal" style="font-size:.7rem;">EGP</small>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="col-12 text-center py-5">
+                    <i class="bi bi-shop display-1 text-light"></i>
+                    <h4 class="mt-3 text-secondary">No active menu items.</h4>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ CART PANEL ═══════════════════════════════════ -->
+    <div class="cart-panel">
+
+        <div class="cart-header">
+            <div class="cart-header-title">
+                <i class="bi bi-bag-check-fill text-vibrant"></i>
+                Current Order
+                <span class="cart-count-badge" id="cart-badge" style="display:none;">0</span>
+            </div>
+        </div>
+
+        <div class="cart-items-area">
+            <div class="empty-cart" id="empty-cart-msg">
+                <i class="bi bi-cart-x"></i>
+                <span>Your cart is empty</span>
+            </div>
+            <div id="cart-items"></div>
+        </div>
+
+        <div class="cart-footer">
+            <div class="cart-footer-fields">
+                <div>
+                    <div class="footer-label">Table <span style="font-weight:400;opacity:.6;">(opt.)</span></div>
+                    <input type="text" id="table-number" class="footer-input" placeholder="e.g. 5, A3">
+                </div>
+                <div>
+                    <div class="footer-label">Instructions</div>
+                    <input type="text" id="customer-notes" class="footer-input" placeholder="e.g. No onions">
+                </div>
+            </div>
+
+            <div class="promo-row">
+                <div class="footer-label">Promo Code <span style="font-weight:400;opacity:.6;">(opt.)</span></div>
+                <div class="promo-wrap">
+                    <input type="text" id="promo-input" class="promo-input" placeholder="e.g. SAVE20">
+                    <button class="promo-apply-btn" type="button" onclick="applyPromo()">Apply</button>
+                </div>
+                <div id="promo-feedback"></div>
+            </div>
+
+            <div class="totals-block">
+                <div class="totals-row">
+                    <span class="label">Subtotal</span>
+                    <span class="value" id="subtotal">0.00 EGP</span>
+                </div>
+                <div class="totals-row discount" id="discount-row" style="display:none;">
+                    <span class="label" id="discount-label">Discount</span>
+                    <span class="value" id="discount-display">-0.00 EGP</span>
+                </div>
+                <hr class="totals-divider">
+                <div class="totals-final">
+                    <span class="label">Total</span>
+                    <span class="value" id="total">0.00 EGP</span>
+                </div>
+            </div>
+
+            <button class="place-order-btn" onclick="completeOrder()" id="checkout-btn" disabled>
+                Place Order <i class="bi bi-arrow-right-short" style="font-size:1.3rem;"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Success Modal -->
+<div class="modal fade" id="successModal" data-bs-backdrop="static" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-5 overflow-hidden">
+            <div class="card border-0 w-100">
+                <div class="card-body text-center py-5">
+                    <div class="mb-4">
+                        <div class="d-inline-flex bg-success bg-opacity-10 text-success p-4 rounded-circle">
+                            <i class="bi bi-check2-circle display-1"></i>
+                        </div>
+                    </div>
+                    <h2 class="fw-bold mb-2">Order Confirmed!</h2>
+                    <p class="text-secondary mb-4 px-4" id="order-confirm-msg"></p>
+                    <div class="d-grid gap-3 px-4">
+                        <a id="print-receipt-btn" href="#" class="btn btn-vibrant py-3 fw-bold" target="_blank">
+                            <i class="bi bi-printer me-2"></i> PRINT RECEIPT
+                        </a>
+                        <button type="button" class="btn btn-light py-2 rounded-3 text-secondary" onclick="location.reload()">NEW ORDER</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let cart = {};
+    let appliedPromo = null;
+
+    // ── Category tabs + search ────────────────────────────────────────────
+    let activeCat = 'all';
+
+    function applyFilters() {
+        const q = document.getElementById('menu-search').value.toLowerCase();
+        document.querySelectorAll('.menu-card-wrapper').forEach(el => {
+            const nameMatch = el.dataset.name.includes(q);
+            const catMatch  = activeCat === 'all' || el.dataset.cat === activeCat;
+            el.style.display = (nameMatch && catMatch) ? '' : 'none';
+        });
+    }
+
+    document.getElementById('menu-search').addEventListener('input', applyFilters);
+
+    document.querySelectorAll('.cat-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.cat-btn').forEach(b => {
+                b.classList.remove('active');
+                b.classList.add('btn-outline-secondary');
+            });
+            this.classList.add('active');
+            this.classList.remove('btn-outline-secondary');
+            activeCat = this.dataset.cat;
+            applyFilters();
+        });
+    });
+
+    // ── Cart ──────────────────────────────────────────────────────────────
+    function addToCart(id, name, price) {
+        if (cart[id]) cart[id].quantity += 1;
+        else cart[id] = { id, name, price, quantity: 1 };
+        renderCart();
+    }
+
+    function removeFromCart(id) {
+        if (!cart[id]) return;
+        if (cart[id].quantity > 1) cart[id].quantity -= 1;
+        else delete cart[id];
+        renderCart();
+    }
+
+    function getSubtotal() {
+        return Object.values(cart).reduce((s, i) => s + i.price * i.quantity, 0);
+    }
+
+    function renderCart() {
+        const cartItemsDiv = document.getElementById('cart-items');
+        const emptyMsg     = document.getElementById('empty-cart-msg');
+        const checkoutBtn  = document.getElementById('checkout-btn');
+        const badge        = document.getElementById('cart-badge');
+
+        cartItemsDiv.innerHTML = '';
+        let itemCount = 0;
+
+        for (const id in cart) {
+            const item = cart[id];
+            itemCount += item.quantity;
+            const d = document.createElement('div');
+            d.className = 'cart-item animate-fade-in';
+            d.innerHTML = `
+                <div class="cart-item-info">
+                    <div class="cart-item-name">${item.name}</div>
+                    <div class="cart-item-unit">${item.price.toFixed(2)} EGP &times; ${item.quantity}</div>
+                </div>
+                <div class="qty-control">
+                    <button class="qty-btn minus" onclick="removeFromCart(${id})"><i class="bi bi-dash"></i></button>
+                    <span class="qty-num">${item.quantity}</span>
+                    <button class="qty-btn plus" onclick="addToCart(${id},'${item.name}',${item.price})"><i class="bi bi-plus"></i></button>
+                </div>
+                <div class="cart-item-line-total">${(item.price * item.quantity).toFixed(2)}</div>`;
+            cartItemsDiv.appendChild(d);
+        }
+
+        if (itemCount === 0) {
+            emptyMsg.style.display = 'flex';
+            checkoutBtn.disabled   = true;
+            badge.style.display    = 'none';
+        } else {
+            emptyMsg.style.display = 'none';
+            checkoutBtn.disabled   = false;
+            badge.style.display    = 'inline-flex';
+            badge.textContent      = itemCount;
+        }
+
+        updateTotalsDisplay();
+    }
+
+    function updateTotalsDisplay() {
+        const sub = getSubtotal();
+        let discount = 0;
+        if (appliedPromo) {
+            discount = appliedPromo.discount;
+            if (appliedPromo.type === 'percent') {
+                discount = parseFloat((sub * appliedPromo.rawValue / 100).toFixed(2));
+                appliedPromo.discount = discount;
+            }
+        }
+        const total = Math.max(0, sub - discount);
+        document.getElementById('subtotal').innerText = sub.toFixed(2) + ' EGP';
+        document.getElementById('total').innerText    = total.toFixed(2) + ' EGP';
+
+        const row = document.getElementById('discount-row');
+        if (discount > 0) {
+            row.style.display = 'flex';
+            document.getElementById('discount-label').innerText   = 'Discount (' + (appliedPromo ? appliedPromo.label : '') + ')';
+            document.getElementById('discount-display').innerText = '-' + discount.toFixed(2) + ' EGP';
+        } else {
+            row.style.display = 'none';
+        }
+    }
+
+    // ── Promo ─────────────────────────────────────────────────────────────
+    async function applyPromo() {
+        const code = document.getElementById('promo-input').value.trim().toUpperCase();
+        const fb   = document.getElementById('promo-feedback');
+        if (!code) { fb.innerHTML = ''; appliedPromo = null; updateTotalsDisplay(); return; }
+
+        const sub = getSubtotal();
+        try {
+            const res  = await fetch('{% url "validate_promo" %}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+                body: JSON.stringify({ code, subtotal: sub }),
+            });
+            const data = await res.json();
+            if (data.valid) {
+                appliedPromo = {
+                    code,
+                    discount:  data.discount,
+                    label:     data.label,
+                    type:      data.type || (data.label.includes('%') ? 'percent' : 'fixed'),
+                    rawValue:  data.raw_value || 0,
+                };
+                fb.innerHTML = `<span class="promo-success"><i class="bi bi-check-circle me-1"></i>${data.label}${data.description ? ' — ' + data.description : ''}</span>`;
+            } else {
+                appliedPromo = null;
+                fb.innerHTML = `<span class="promo-error"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+            }
+        } catch {
+            appliedPromo = null;
+            fb.innerHTML = '<span class="promo-error">Could not validate code.</span>';
+        }
+        updateTotalsDisplay();
+    }
+
+    document.getElementById('promo-input').addEventListener('keydown', e => { if (e.key === 'Enter') applyPromo(); });
+
+    // ── Place Order ───────────────────────────────────────────────────────
+    async function completeOrder() {
+        const btn   = document.getElementById('checkout-btn');
+        const notes = document.getElementById('customer-notes').value;
+        const table = document.getElementById('table-number').value.trim();
+        const promo = appliedPromo ? appliedPromo.code : '';
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> PROCESSING...';
+
+        try {
+            const res = await fetch('{% url "create_order" %}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+                body: JSON.stringify({ cart: Object.values(cart), notes, table_number: table, promo_code: promo }),
+            });
+            const result = await res.json();
+            if (result.success) {
+                let msg = 'Order #' + result.order_number + ' confirmed.';
+                if (table) msg += '  Table: ' + table + '.';
+                if (result.discount > 0) msg += '  Discount: -' + result.discount.toFixed(2) + ' EGP.';
+                msg += '  Total: ' + result.total.toFixed(2) + ' EGP.';
+                document.getElementById('order-confirm-msg').innerText = msg;
+                document.getElementById('print-receipt-btn').href = '/receipt/' + result.order_number + '/';
+                new bootstrap.Modal(document.getElementById('successModal')).show();
+            } else {
+                alert('Error: ' + result.error);
+                btn.disabled = false;
+                btn.innerHTML = 'Place Order <i class="bi bi-arrow-right-short" style="font-size:1.3rem;"></i>';
+            }
+        } catch {
+            alert('Something went wrong. Please check stock levels.');
+            btn.disabled = false;
+            btn.innerHTML = 'Place Order <i class="bi bi-arrow-right-short" style="font-size:1.3rem;"></i>';
+        }
+    }
+</script>
+{% endblock %}

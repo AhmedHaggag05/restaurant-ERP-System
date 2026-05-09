@@ -1,0 +1,161 @@
+{% extends 'erp_base.html' %}
+{% block page_title %}Categories{% endblock %}
+{% block content %}
+<div class="animate-fade-in">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="section-title mb-1">Menu Categories</h1>
+            <p class="text-secondary mb-0">Group your menu items for faster navigation on the POS.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-vibrant rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#addCatModal">
+                <i class="bi bi-plus-lg me-1"></i> Add Category
+            </button>
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-dark rounded-pill px-4">
+                <i class="bi bi-arrow-left me-1"></i> Dashboard
+            </a>
+        </div>
+    </div>
+
+    {% if messages %}{% for m in messages %}
+    <div class="alert alert-{% if m.tags == 'error' %}danger{% else %}success{% endif %} rounded-3 alert-dismissible fade show">
+        {{ m }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>{% endfor %}{% endif %}
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-4">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr class="text-secondary small text-uppercase">
+                        <th class="border-0 py-3">Category Name</th>
+                        <th class="border-0 py-3 text-center">Items</th>
+                        <th class="border-0 py-3 text-center">Sort Order</th>
+                        <th class="border-0 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat in categories %}
+                    <tr>
+                        <td class="fw-bold">{{ cat.name }}</td>
+                        <td class="text-center"><span class="badge bg-soft text-vibrant rounded-pill">{{ cat.item_count }}</span></td>
+                        <td class="text-center text-secondary">{{ cat.sort_order }}</td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-dark rounded-pill me-1"
+                                data-bs-toggle="modal" data-bs-target="#editCatModal"
+                                data-id="{{ cat.id }}" data-name="{{ cat.name }}" data-sort="{{ cat.sort_order }}">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger rounded-pill"
+                                data-bs-toggle="modal" data-bs-target="#deleteCatModal"
+                                data-id="{{ cat.id }}" data-name="{{ cat.name }}">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="4" class="text-center py-5 text-secondary">
+                        <i class="bi bi-tags display-1 text-light d-block mb-2"></i>
+                        No categories yet. Add one to start organising your menu.
+                    </td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal fade" id="addCatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Add Category</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">{% csrf_token %}<input type="hidden" name="action" value="add">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Name</label>
+                        <input type="text" name="name" class="form-control rounded-3" placeholder="e.g. Sandwiches" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Sort Order</label>
+                        <input type="number" name="sort_order" class="form-control rounded-3" value="0">
+                        <div class="form-text">Lower number = appears first on POS</div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0 p-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-vibrant rounded-pill px-4">Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editCatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Edit Category</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">{% csrf_token %}<input type="hidden" name="action" value="edit">
+                <input type="hidden" name="cat_id" id="edit-cat-id">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Name</label>
+                        <input type="text" name="name" id="edit-cat-name" class="form-control rounded-3" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Sort Order</label>
+                        <input type="number" name="sort_order" id="edit-cat-sort" class="form-control rounded-3">
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0 p-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-vibrant rounded-pill px-4">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Modal -->
+<div class="modal fade" id="deleteCatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-danger">Delete Category</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete">
+                <input type="hidden" name="cat_id" id="del-cat-id">
+                <div class="modal-body p-4">
+                    <p>Delete category <strong id="del-cat-name"></strong>?</p>
+                    <div class="alert alert-warning rounded-3 small">Menu items in this category will not be deleted — they'll just become uncategorised.</div>
+                </div>
+                <div class="modal-footer border-0 pt-0 p-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger rounded-pill px-4">Delete</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('editCatModal').addEventListener('show.bs.modal', e => {
+    const b = e.relatedTarget;
+    document.getElementById('edit-cat-id').value   = b.dataset.id;
+    document.getElementById('edit-cat-name').value = b.dataset.name;
+    document.getElementById('edit-cat-sort').value = b.dataset.sort;
+});
+document.getElementById('deleteCatModal').addEventListener('show.bs.modal', e => {
+    const b = e.relatedTarget;
+    document.getElementById('del-cat-id').value       = b.dataset.id;
+    document.getElementById('del-cat-name').textContent = b.dataset.name;
+});
+</script>
+{% endblock %}

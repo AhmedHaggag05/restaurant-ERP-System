@@ -1,0 +1,112 @@
+{% extends 'erp_base.html' %}
+{% block title %}Damaged Stock Ledger{% endblock %}
+{% block page_title %}Damaged Stock{% endblock %}
+{% block content %}
+<div class="animate-fade-in">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div>
+            <h2 class="section-title mb-1">Damaged Stock Ledger</h2>
+            <p class="text-secondary mb-0">All ingredient waste and damage events</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary rounded-pill px-3">
+                <i class="bi bi-arrow-left me-1"></i> Dashboard
+            </a>
+        </div>
+    </div>
+
+    <!-- KPI -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-3">
+                <div class="text-secondary small fw-bold text-uppercase mb-1">Total Damage Events</div>
+                <div class="fw-bold fs-3">{{ page_obj.paginator.count }}</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-3">
+                <div class="text-secondary small fw-bold text-uppercase mb-1">Total Damage Cost (EGP)</div>
+                <div class="fw-bold fs-3 text-danger">{{ total_damage_cost|floatformat:2 }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card border-0 shadow-sm rounded-4 mb-3 p-3">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-secondary text-uppercase mb-1">Ingredient</label>
+                <select name="ingredient" class="form-select rounded-3">
+                    <option value="">All Ingredients</option>
+                    {% for ing in ingredients %}
+                    <option value="{{ ing.id }}" {% if ing_filter == ing.id|stringformat:"s" %}selected{% endif %}>{{ ing.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn rounded-pill px-4 flex-grow-1" style="background:#FF4500;color:#fff;">Filter</button>
+                <a href="{% url 'damaged_stock' %}" class="btn btn-outline-secondary rounded-pill px-3">Clear</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light">
+                        <tr class="text-secondary small text-uppercase">
+                            <th class="py-3 px-4">Date & Time</th>
+                            <th class="py-3">Ingredient</th>
+                            <th class="py-3 text-end">Qty Damaged</th>
+                            <th class="py-3 text-end">Est. Cost (EGP)</th>
+                            <th class="py-3">Linked Order</th>
+                            <th class="py-3">Reason</th>
+                            <th class="py-3">Recorded By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for d in logs %}
+                        <tr>
+                            <td class="px-4 py-3">
+                                <div class="small fw-bold">{{ d.created_at|date:"H:i" }}</div>
+                                <div class="small text-secondary">{{ d.created_at|date:"d M Y" }}</div>
+                            </td>
+                            <td class="fw-bold small">{{ d.ingredient.name }}</td>
+                            <td class="text-end small">
+                                <span class="text-danger fw-semibold">-{{ d.qty_damaged|floatformat:3 }}</span>
+                                <span class="text-muted">{{ d.unit }}</span>
+                            </td>
+                            <td class="text-end small fw-bold text-danger">
+                                {{ d.qty_damaged|floatformat:3 }} × {{ d.ingredient.cost_per_unit|floatformat:4 }} =
+                                <span style="color:#dc2626;">{{ d.line_cost|floatformat:2 }} EGP</span>
+                            </td>
+                            <td class="small">
+                                {% if d.order %}
+                                <a href="{% url 'receipt' d.order.order_number %}" target="_blank"
+                                   class="text-vibrant fw-semibold text-decoration-none">
+                                    {{ d.order.order_number }}
+                                </a>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="small text-secondary">{{ d.reason|default:"—" }}</td>
+                            <td class="small">{{ d.recorded_by.username|default:"—" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5">
+                                <i class="bi bi-check-circle display-1 text-light d-block mb-2"></i>
+                                <div class="text-muted">No damage events recorded yet.</div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="px-4 pb-3">
+                {% include "_pagination.html" %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

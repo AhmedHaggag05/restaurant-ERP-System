@@ -1,0 +1,334 @@
+{% extends 'erp_base.html' %}
+{% block page_title %}Menu Management{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+        <div>
+            <h1 class="section-title mb-1">Menu Management</h1>
+            <p class="text-secondary mb-0">Create and edit your restaurant's menu items.</p>
+        </div>
+        <div>
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-dark rounded-pill px-4">← Back to Dashboard</a>
+        </div>
+    </div>
+
+    {% if messages %}
+    {% for message in messages %}
+    <div class="alert alert-{{ message.tags }} alert-dismissible fade show rounded-3 mb-3" role="alert">
+        {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <div class="row g-4">
+
+        <!-- ── Left column: Add form ── -->
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm sticky-top" style="top: 20px;">
+                <div class="card-body p-4">
+                    <h4 class="fw-bold mb-4">Add New Item</h4>
+                    <form method="POST">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Item Name</label>
+                            <input type="text" name="name" class="form-control" placeholder="e.g. Classic Burger" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Price (EGP)</label>
+                            <input type="number" step="0.01" name="price" class="form-control" placeholder="0.00" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Description</label>
+                            <textarea name="description" class="form-control" rows="2" placeholder="Brief description..."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Image URL (Optional)</label>
+                            <input type="url" name="image_url" class="form-control" placeholder="https://...">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Category (Optional)</label>
+                            <select name="category" class="form-select">
+                                <option value="">— No Category —</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="is_active" id="isActive" checked>
+                                <label class="form-check-label small fw-bold text-secondary" for="isActive">Active & Visible</label>
+                            </div>
+                        </div>
+                        <hr class="my-3">
+                        <h6 class="fw-bold mb-3">Recipe / Ingredients</h6>
+                        <div id="ingredient-rows">
+                            <div class="ingredient-row row g-2 mb-2 align-items-center">
+                                <div class="col-5">
+                                    <select name="ingredients" class="form-select form-select-sm">
+                                        <option value="">Select Ingredient</option>
+                                        {% for ing in ingredients %}
+                                        <option value="{{ ing.id }}">{{ ing.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-4">
+                                    <select name="recipe_units" class="form-select form-select-sm">
+                                        <option value="g">grams (g)</option>
+                                        <option value="mL">ml (mL)</option>
+                                        <option value="packets">packets</option>
+                                        <option value="cans">cans</option>
+                                        <option value="pieces">pieces</option>
+                                    </select>
+                                </div>
+                                <div class="col-3">
+                                    <input type="number" step="0.001" min="0" name="quantities" class="form-control form-control-sm" placeholder="0.000">
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-light w-100 mt-2" onclick="addIngredientRow()">
+                            <i class="bi bi-plus-circle me-1"></i> Add Another Ingredient
+                        </button>
+                        <button type="submit" class="btn btn-vibrant w-100 mt-4 py-3">Create Menu Item</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Right column: menu list + cost analysis ── -->
+        <div class="col-lg-8 d-flex flex-column gap-4">
+
+            <!-- Current Menu table -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-body p-4">
+                    <h4 class="fw-bold mb-4">Current Menu</h4>
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light">
+                            <tr class="text-secondary small">
+                                <th class="py-3 border-0">Item</th>
+                                <th class="py-3 border-0 text-center">Price</th>
+                                <th class="py-3 border-0 text-center">Status</th>
+                                <th class="py-3 border-0 text-end" style="width:120px">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in menu_items %}
+                            <tr>
+                                <td class="py-3">
+                                    <div class="d-flex align-items-center gap-3">
+                                        {% if item.image_url %}
+                                        <img src="{{ item.image_url }}" alt="{{ item.name }}" class="rounded-3" style="width:45px;height:45px;object-fit:cover;">
+                                        {% else %}
+                                        <div class="bg-light rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" style="width:45px;height:45px;">
+                                            <i class="bi bi-egg-fried text-secondary"></i>
+                                        </div>
+                                        {% endif %}
+                                        <div>
+                                            <div class="fw-bold">{{ item.name }}</div>
+                                            <div class="small text-secondary">{{ item.ingredients.count }} ingredient(s)</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center fw-bold">{{ item.price|floatformat:2 }} EGP</td>
+                                <td class="text-center">
+                                    {% if item.is_active %}
+                                    <span class="badge bg-success bg-opacity-10 text-success rounded-pill px-3">Active</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary bg-opacity-10 text-secondary rounded-pill px-3">Inactive</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <!-- Inline action buttons — no dropdown to avoid overflow clipping -->
+                                    <div class="d-flex gap-1 justify-content-end">
+                                        <a href="{% url 'edit_menu_item' item.pk %}" class="btn btn-sm btn-outline-dark rounded-pill px-2" title="Edit">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <a href="{% url 'toggle_menu_item_status' item.pk %}"
+                                           class="btn btn-sm rounded-pill px-2 {% if item.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+                                           title="{% if item.is_active %}Deactivate{% else %}Activate{% endif %}">
+                                            <i class="bi {% if item.is_active %}bi-eye-slash{% else %}bi-eye{% endif %}"></i>
+                                        </a>
+                                        <button class="btn btn-sm btn-outline-danger rounded-pill px-2"
+                                            title="Delete"
+                                            data-bs-toggle="modal" data-bs-target="#deleteMenuItemModal"
+                                            data-name="{{ item.name }}"
+                                            data-url="{% url 'delete_menu_item' item.pk %}">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-center py-5 text-secondary">No menu items yet. Add your first one!</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Cost Analysis table (sits right below the menu list) -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-1">Menu Item Cost Analysis</h5>
+                    <p class="text-secondary small mb-4">Ingredient cost per item based on current prices.</p>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="bg-light">
+                                <tr class="text-secondary small text-uppercase">
+                                    <th class="py-3 border-0">Item</th>
+                                    <th class="py-3 border-0">Ingredients</th>
+                                    <th class="py-3 border-0 text-center">Sale Price</th>
+                                    <th class="py-3 border-0 text-center">Cost</th>
+                                    <th class="py-3 border-0 text-center">Profit</th>
+                                    <th class="py-3 border-0 text-center">Margin</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in menu_items_with_cost %}
+                                <tr>
+                                    <td class="fw-bold py-3">
+                                        {{ item.name }}
+                                        {% if not item.is_active %}<span class="badge bg-secondary bg-opacity-10 text-secondary ms-1">Inactive</span>{% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            {% for ing in item.ingredient_breakdown %}
+                                            <span class="badge bg-light text-dark border fw-normal">{{ ing.name }}: {{ ing.line_cost|floatformat:2 }} EGP</span>
+                                            {% empty %}
+                                            <span class="text-secondary small">None</span>
+                                            {% endfor %}
+                                        </div>
+                                    </td>
+                                    <td class="text-center fw-bold">{{ item.price|floatformat:2 }} EGP</td>
+                                    <td class="text-center text-secondary">
+                                        {% if item.total_cost > 0 %}{{ item.total_cost|floatformat:2 }} EGP{% else %}—{% endif %}
+                                    </td>
+                                    <td class="text-center fw-bold {% if item.profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                        {% if item.total_cost > 0 %}{{ item.profit|floatformat:2 }} EGP{% else %}—{% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        {% if item.total_cost > 0 %}
+                                        <span class="badge rounded-pill px-3 {% if item.margin >= 50 %}bg-success bg-opacity-10 text-success{% elif item.margin >= 20 %}bg-warning bg-opacity-10 text-warning{% else %}bg-danger bg-opacity-10 text-danger{% endif %}">
+                                            {{ item.margin|floatformat:1 }}%
+                                        </span>
+                                        {% else %}—{% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="6" class="text-center py-4 text-secondary">No menu items found.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3 p-3 bg-light rounded-3">
+                        <small class="text-secondary">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Cost = <strong>Σ (quantity × cost per unit)</strong> for each ingredient.
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- end right col -->
+    </div><!-- end row -->
+</div>
+
+<!-- Delete Menu Item Modal -->
+<div class="modal fade" id="deleteMenuItemModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-danger">Delete Menu Item</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="text-secondary">Are you sure you want to permanently delete <strong id="delete-menu-name"></strong>?</p>
+                <div class="alert alert-danger rounded-3 small">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    This cannot be undone. Past orders are preserved.
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0 p-4">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                <a id="delete-menu-link" href="#" class="btn btn-danger rounded-pill px-4">
+                    <i class="bi bi-trash me-1"></i> Yes, Delete
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script>
+// For boxes, allowed recipe unit = ingredient.sub_unit (cans or packets)
+const STATIC_FAMILIES = {
+    'kg':     ['g'],
+    'L':      ['mL'],
+    'pieces': ['pieces'],
+};
+const UNIT_LABELS = {
+    'g':       'grams (g)',
+    'mL':      'milliliters (mL)',
+    'pieces':  'pieces',
+    'packets': 'packets',
+    'cans':    'cans',
+};
+// ingredient id -> {unit, sub_unit}
+const ING_UNITS = {
+    {% for ing in ingredients %}"{{ ing.id }}": {"unit": "{{ ing.unit }}", "sub": "{{ ing.sub_unit }}"}{% if not forloop.last %},{% endif %}
+    {% endfor %}
+};
+
+function getAllowedUnits(ingId) {
+    if (!ingId || !ING_UNITS[ingId]) return Object.keys(UNIT_LABELS);
+    const d = ING_UNITS[ingId];
+    if (d.unit === 'boxes') return [d.sub];
+    return STATIC_FAMILIES[d.unit] || ['pieces'];
+}
+
+function updateRecipeUnits(row, keepValue) {
+    const ingSelect  = row.querySelector('select[name="ingredients"]');
+    const unitSelect = row.querySelector('select[name="recipe_units"]');
+    if (!unitSelect) return;
+    const prevVal = keepValue !== undefined ? keepValue : unitSelect.value;
+    unitSelect.innerHTML = '';
+    getAllowedUnits(ingSelect.value).forEach(val => {
+        const opt = new Option(UNIT_LABELS[val] || val, val);
+        if (val === prevVal) opt.selected = true;
+        unitSelect.appendChild(opt);
+    });
+}
+
+function wireRow(row) {
+    const ingSelect = row.querySelector('select[name="ingredients"]');
+    ingSelect.addEventListener('change', () => updateRecipeUnits(row));
+    if (ingSelect.value) updateRecipeUnits(row, row.querySelector('select[name="recipe_units"]').value);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.ingredient-row').forEach(wireRow);
+});
+
+function addIngredientRow() {
+    const container = document.getElementById('ingredient-rows');
+    const firstRow  = container.querySelector('.ingredient-row');
+    const newRow    = firstRow.cloneNode(true);
+    newRow.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
+    newRow.querySelectorAll('input[type="number"]').forEach(i => i.value = '');
+    container.appendChild(newRow);
+    wireRow(newRow);
+    updateRecipeUnits(newRow);
+}
+</script>
+<script>
+document.getElementById('deleteMenuItemModal').addEventListener('show.bs.modal', function(e) {
+    const btn = e.relatedTarget;
+    if (!btn) return;
+    document.getElementById('delete-menu-name').textContent = btn.getAttribute('data-name');
+    document.getElementById('delete-menu-link').href = btn.getAttribute('data-url');
+});
+</script>
+{% endblock %}

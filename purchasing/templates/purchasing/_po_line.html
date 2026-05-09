@@ -1,0 +1,86 @@
+{# PO line row — rendered by Django for row-0, cloned by JS for subsequent rows #}
+<div class="row g-2 align-items-start">
+
+    <!-- Ingredient -->
+    <div class="col-12 col-md-4">
+        <label class="erp-form-label" style="font-size:.67rem;letter-spacing:.04em;">INGREDIENT</label>
+        <select name="ingredient_id" class="erp-input" onchange="onIngredientChange(this)">
+            <option value="">Select ingredient...</option>
+            {% for ing in ing_list %}
+            <option value="{{ ing.id }}" data-unit="{{ ing.unit }}" data-cost="{{ ing.cost_per_unit }}">
+                {{ ing.name }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <!-- Quantity + unit toggle -->
+    <div class="col-6 col-md-3">
+        <label class="erp-form-label" style="font-size:.67rem;letter-spacing:.04em;">QUANTITY</label>
+        <div class="d-flex align-items-center gap-1 mb-1">
+            <input type="number" name="qty_entry" step="0.001" min="0"
+                class="erp-input" placeholder="e.g. 3"
+                oninput="calcLine(this.closest('.line-row'))"
+                style="flex:1;min-width:0;">
+        </div>
+        <!-- Unit toggle: main (kg) / sub (g) — hidden until ingredient chosen -->
+        <div class="unit-toggle-group d-none gap-1">
+            <button type="button" class="btn-main-unit unit-btn active"
+                onclick="onUnitBtn(this, 'main')"
+                style="font-size:.72rem;font-weight:700;padding:.22rem .5rem;border-radius:6px;border:1px solid #FF4500;cursor:pointer;background:#FF4500;color:#fff;">
+                kg
+            </button>
+            <button type="button" class="btn-sub-unit unit-btn"
+                onclick="onUnitBtn(this, 'sub')"
+                style="font-size:.72rem;font-weight:700;padding:.22rem .5rem;border-radius:6px;border:1px solid #ccc;cursor:pointer;background:#fff;color:#666;">
+                g
+            </button>
+        </div>
+        <!-- Simple badge for pieces/boxes -->
+        <span class="unit-badge-single d-none"
+            style="font-size:.75rem;font-weight:700;color:#FF4500;background:#fff0eb;padding:.2rem .5rem;border-radius:6px;">
+            —
+        </span>
+        <!-- Computed quantity in main unit sent to server -->
+        <input type="hidden" name="quantity" value="0">
+        <input type="hidden" name="input_unit" value="">
+    </div>
+
+    <!-- Cost entry -->
+    <div class="col-6 col-md-4">
+        <label class="erp-form-label cost-label" style="font-size:.67rem;letter-spacing:.04em;">TOTAL PAID (EGP)</label>
+        <!-- Mode toggle -->
+        <div class="d-flex gap-1 mb-1">
+            <button type="button" class="btn-cost-total cost-mode-btn active"
+                onclick="onCostModeBtn(this, 'total')"
+                style="font-size:.68rem;font-weight:700;padding:.2rem .5rem;border-radius:6px;border:1px solid #FF4500;cursor:pointer;background:#FF4500;color:#fff;white-space:nowrap;">
+                Total Paid
+            </button>
+            <button type="button" class="btn-cost-perunit cost-mode-btn"
+                onclick="onCostModeBtn(this, 'per_unit')"
+                style="font-size:.68rem;font-weight:700;padding:.2rem .5rem;border-radius:6px;border:1px solid #ccc;cursor:pointer;background:#fff;color:#666;white-space:nowrap;">
+                Per Unit
+            </button>
+        </div>
+        <input type="number" name="unit_cost_entry" step="0.0001" min="0"
+            class="erp-input" placeholder="e.g. 600"
+            oninput="calcLine(this.closest('.line-row'))">
+        <!-- Computed cost per main unit sent to server -->
+        <input type="hidden" name="unit_cost" value="0">
+        <input type="hidden" name="cost_mode" value="total">
+    </div>
+
+    <!-- Line total + delete -->
+    <div class="col-12 col-md-1">
+        <label class="erp-form-label" style="font-size:.67rem;letter-spacing:.04em;">TOTAL</label>
+        <div class="d-flex align-items-center gap-1 mt-1">
+            <span class="line-total fw-bold" style="color:#1a1a1a;white-space:nowrap;">0.00</span>
+            <button type="button" class="btn btn-sm btn-outline-danger rounded-3 ms-auto"
+                onclick="removeLine(this)" style="padding:.2rem .45rem;">
+                <i class="bi bi-trash" style="font-size:.72rem;"></i>
+            </button>
+        </div>
+    </div>
+</div>
+<!-- Live preview: shows quantity in main unit + cost/unit -->
+<div class="cost-preview text-muted mt-1" style="font-size:.74rem;min-height:1.1em;padding-left:2px;"></div>

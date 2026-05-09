@@ -1,0 +1,158 @@
+{% extends 'erp_base.html' %}
+{% block page_title %}Activity Log{% endblock %}
+{% block title %}Activity Log | Searing Sandwiches{% endblock %}
+
+{% block extra_css %}
+<style>
+.action-badge {
+    font-size: .72rem; font-weight: 700; padding: .25rem .65rem;
+    border-radius: 999px; white-space: nowrap;
+}
+.badge-view    { background: #e0f2fe; color: #0369a1; }
+.badge-add     { background: #dcfce7; color: #15803d; }
+.badge-edit    { background: #fef9c3; color: #a16207; }
+.badge-delete  { background: #fee2e2; color: #b91c1c; }
+.badge-export  { background: #f3e8ff; color: #7e22ce; }
+.badge-auth    { background: #f0fdf4; color: #16a34a; }
+.badge-void    { background: #fff7ed; color: #c2410c; }
+.badge-restock { background: #eff6ff; color: #1d4ed8; }
+.badge-toggle  { background: #fdf4ff; color: #7c3aed; }
+.log-table td, .log-table th { vertical-align: middle; }
+.filter-bar { background: white; border-radius: 16px; padding: 1.25rem 1.5rem;
+              box-shadow: 0 2px 12px rgba(0,0,0,.05); margin-bottom: 1.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div>
+            <h2 class="section-title mb-1">Activity Log</h2>
+            <p class="text-secondary mb-0">Every action taken by managers and staff</p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="{% url 'excel_activity_log' %}" class="btn btn-outline-success rounded-pill px-3">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i> Export Excel
+            </a>
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary rounded-pill px-3">
+                <i class="bi bi-arrow-left me-1"></i> Dashboard
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary text-uppercase mb-1">User</label>
+                <input type="text" name="user" value="{{ user_filter }}" class="form-control rounded-3"
+                       placeholder="Username...">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-secondary text-uppercase mb-1">Action</label>
+                <select name="action" class="form-select rounded-3">
+                    <option value="">— All Actions —</option>
+                    {% for val, label in action_choices %}
+                    <option value="{{ val }}" {% if action_filter == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary text-uppercase mb-1">Date</label>
+                <input type="date" name="date" value="{{ date_filter }}" class="form-control rounded-3">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-vibrant w-100 rounded-3">Filter</button>
+            </div>
+            {% if user_filter or action_filter or date_filter %}
+            <div class="col-12">
+                <a href="{% url 'activity_log' %}" class="text-secondary small">
+                    <i class="bi bi-x-circle me-1"></i>Clear filters
+                </a>
+            </div>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Table -->
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 log-table">
+                <thead style="background:#f8f9fa;">
+                    <tr>
+                        <th class="px-4 py-3 text-secondary small text-uppercase fw-bold">Date & Time</th>
+                        <th class="px-3 py-3 text-secondary small text-uppercase fw-bold">User</th>
+                        <th class="px-3 py-3 text-secondary small text-uppercase fw-bold">Action</th>
+                        <th class="px-3 py-3 text-secondary small text-uppercase fw-bold">Target</th>
+                        <th class="px-3 py-3 text-secondary small text-uppercase fw-bold">Detail</th>
+                        <th class="px-3 py-3 text-secondary small text-uppercase fw-bold">IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td class="px-4 py-3">
+                            <div class="fw-bold small">{{ log.created_at|date:"Y-m-d" }}</div>
+                            <div class="text-secondary" style="font-size:.78rem;">{{ log.created_at|date:"H:i:s" }}</div>
+                        </td>
+                        <td class="px-3 py-3">
+                            {% if log.user %}
+                            <span class="fw-bold small">{{ log.user.username }}</span>
+                            {% if log.user.profile.role == 'superadmin' %}
+                            <span class="badge bg-danger bg-opacity-10 text-danger ms-1" style="font-size:.6rem;">SA</span>
+                            {% elif log.user.profile.role == 'manager' %}
+                            <span class="badge bg-warning bg-opacity-10 text-warning ms-1" style="font-size:.6rem;">MGR</span>
+                            {% endif %}
+                            {% else %}
+                            <span class="text-secondary small">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-3">
+                            {% with a=log.action %}
+                            {% if 'view' in a %}
+                            <span class="action-badge badge-view">{{ log.get_action_display }}</span>
+                            {% elif 'add' in a %}
+                            <span class="action-badge badge-add">{{ log.get_action_display }}</span>
+                            {% elif 'edit' in a %}
+                            <span class="action-badge badge-edit">{{ log.get_action_display }}</span>
+                            {% elif 'delete' in a %}
+                            <span class="action-badge badge-delete">{{ log.get_action_display }}</span>
+                            {% elif 'export' in a %}
+                            <span class="action-badge badge-export">{{ log.get_action_display }}</span>
+                            {% elif 'login' in a or 'logout' in a %}
+                            <span class="action-badge badge-auth">{{ log.get_action_display }}</span>
+                            {% elif 'void' in a %}
+                            <span class="action-badge badge-void">{{ log.get_action_display }}</span>
+                            {% elif 'restock' in a %}
+                            <span class="action-badge badge-restock">{{ log.get_action_display }}</span>
+                            {% elif 'toggle' in a %}
+                            <span class="action-badge badge-toggle">{{ log.get_action_display }}</span>
+                            {% else %}
+                            <span class="action-badge" style="background:#f3f4f6;color:#374151;">{{ log.get_action_display }}</span>
+                            {% endif %}
+                            {% endwith %}
+                        </td>
+                        <td class="px-3 py-3 fw-bold small">{{ log.target|default:"—" }}</td>
+                        <td class="px-3 py-3 text-secondary small" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                            title="{{ log.detail }}">{{ log.detail|default:"" }}</td>
+                        <td class="px-3 py-3 text-secondary" style="font-size:.75rem;font-family:monospace;">
+                            {{ log.ip_address|default:"—" }}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-5 text-secondary">
+                            <i class="bi bi-journal-x display-4 d-block mb-2 opacity-25"></i>
+                            No activity recorded yet.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="px-4 pb-3">
+            {% include "_pagination.html" %}
+        </div>
+    </div>
+</div>
+{% endblock %}

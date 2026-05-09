@@ -1,0 +1,84 @@
+{% extends "erp_base.html" %}
+{% block title %}Employees — HR{% endblock %}
+{% block page_title %}Employees{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Employees</h1>
+        <p class="erp-page-sub">Manage your workforce</p>
+    </div>
+    <a href="{% url 'manage_employees' %}" class="btn btn-erp btn-primary-erp">
+        <i class="bi bi-plus-lg me-1"></i> Add / Edit Employees
+    </a>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-sm-4">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#fff0eb;color:#FF4500;"><i class="bi bi-people-fill"></i></div>
+            <div class="stat-label">Total Active</div>
+            <div class="stat-value">{{ employees|length }}</div>
+        </div>
+    </div>
+    <div class="col-sm-4">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#f0fdf4;color:#16a34a;"><i class="bi bi-wallet2"></i></div>
+            <div class="stat-label">Monthly Payroll</div>
+            <div class="stat-value">{% for e in employees %}{% if forloop.first %}{% with total=0 %}{% endwith %}{% endif %}{% endfor %}
+                {% with total=0 %}
+                    {% for e in employees %}{% endfor %}
+                    —
+                {% endwith %}
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-4">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#fef9c3;color:#a16207;"><i class="bi bi-clock-history"></i></div>
+            <div class="stat-label">Pending Advances</div>
+            <div class="stat-value">{{ employees|length }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="erp-card">
+    <div class="erp-card-header"><i class="bi bi-people"></i> All Employees</div>
+    <table class="erp-table">
+        <thead>
+            <tr>
+                <th>Name</th><th>Role</th><th>Phone</th>
+                <th class="text-end">Salary (EGP)</th>
+                <th>Hire Date</th><th>Status</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for emp in employees %}
+        <tr>
+            <td><strong>{{ emp.full_name }}</strong></td>
+            <td>{{ emp.get_job_title_display }}</td>
+            <td>{{ emp.phone|default:"—" }}</td>
+            <td class="text-end fw-bold">{{ emp.salary|floatformat:2 }}</td>
+            <td>{{ emp.hire_date }}</td>
+            <td>
+                {% if emp.is_active %}
+                <span class="status-badge status-paid">Active</span>
+                {% else %}
+                <span class="status-badge status-cancelled">Inactive</span>
+                {% endif %}
+            </td>
+            <td>
+                <a href="{% url 'hr:attendance' %}?employee={{ emp.id }}" class="btn btn-sm btn-outline-secondary rounded-3 me-1">
+                    <i class="bi bi-calendar3"></i>
+                </a>
+                <a href="{% url 'hr:advances' %}" class="btn btn-sm btn-outline-secondary rounded-3">
+                    <i class="bi bi-wallet2"></i>
+                </a>
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No employees found. <a href="{% url 'manage_employees' %}">Add employees</a></td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

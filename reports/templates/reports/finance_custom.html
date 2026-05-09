@@ -1,0 +1,188 @@
+{% extends "erp_base.html" %}
+{% block title %}Custom Report{% endblock %}
+{% block page_title %}Custom Financial Report{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Custom Financial Report</h1>
+        <p class="erp-page-sub">Choose how to group and filter your data</p>
+    </div>
+    <a href="{% url 'reports:hub' %}" class="btn btn-light btn-erp"><i class="bi bi-arrow-left me-1"></i>Reports</a>
+</div>
+
+<div class="row g-4">
+    <!-- Filter panel -->
+    <div class="col-lg-3">
+        <div class="erp-card p-4">
+            <div class="erp-card-header px-0 pt-0 mb-3"><i class="bi bi-sliders me-1"></i> Filters</div>
+            <form method="get" id="custom-form">
+                <div class="mb-3">
+                    <label class="erp-form-label">Date From</label>
+                    <input type="date" name="date_from" value="{{ date_from }}" class="erp-input">
+                </div>
+                <div class="mb-3">
+                    <label class="erp-form-label">Date To</label>
+                    <input type="date" name="date_to" value="{{ date_to }}" class="erp-input">
+                </div>
+                <div class="mb-3">
+                    <label class="erp-form-label">Group By</label>
+                    <select name="group_by" class="erp-input">
+                        {% for val, lbl in group_choices %}
+                        <option value="{{ val }}" {% if group_by == val %}selected{% endif %}>{{ lbl }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="erp-form-label">Menu Items <span class="text-muted" style="font-size:.75rem;">(leave blank = all)</span></label>
+                    <div style="max-height:180px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:.5rem;">
+                        {% for mi in menu_items %}
+                        <label class="d-flex align-items-center gap-2 mb-1" style="font-size:.8rem;cursor:pointer;">
+                            <input type="checkbox" name="item_ids" value="{{ mi.id }}"
+                                {% if mi.id|stringformat:"s" in sel_items %}checked{% endif %}>
+                            {{ mi.name }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="erp-form-label">Categories <span class="text-muted" style="font-size:.75rem;">(leave blank = all)</span></label>
+                    <div style="max-height:120px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:.5rem;">
+                        {% for cat in categories %}
+                        <label class="d-flex align-items-center gap-2 mb-1" style="font-size:.8rem;cursor:pointer;">
+                            <input type="checkbox" name="cat_ids" value="{{ cat.id }}"
+                                {% if cat.id|stringformat:"s" in sel_cats %}checked{% endif %}>
+                            {{ cat.name }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary-erp btn-erp w-100 mb-2">
+                    <i class="bi bi-bar-chart me-1"></i>Run Report
+                </button>
+                <a href="{% url 'reports:finance_custom' %}" class="btn btn-light btn-erp w-100" style="font-size:.85rem;">Reset</a>
+            </form>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div class="col-lg-9">
+        {% if results is not None %}
+        <!-- Export buttons + summary -->
+        <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <span class="fw-semibold" style="font-size:.9rem;">{{ period }}</span>
+            <div class="ms-auto d-flex gap-2">
+                <a id="pdf-dl" href="#" class="btn btn-erp" style="background:#fee2e2;color:#dc2626;border:none;font-size:.82rem;">
+                    <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+                </a>
+                <a id="xl-dl" href="#" class="btn btn-erp" style="background:#dcfce7;color:#16a34a;border:none;font-size:.82rem;">
+                    <i class="bi bi-file-earmark-excel me-1"></i>Excel
+                </a>
+            </div>
+        </div>
+
+        <!-- KPI strip -->
+        <div class="row g-3 mb-4">
+            <div class="col-4"><div class="erp-card p-3 text-center">
+                <div style="font-size:.7rem;color:#9ca3af;text-transform:uppercase;font-weight:600;">Revenue</div>
+                <div style="font-size:1.3rem;font-weight:800;color:#FF4500;">{{ total_rev|floatformat:2 }}</div>
+            </div></div>
+            <div class="col-4"><div class="erp-card p-3 text-center">
+                <div style="font-size:.7rem;color:#9ca3af;text-transform:uppercase;font-weight:600;">COGS</div>
+                <div style="font-size:1.3rem;font-weight:800;color:#dc2626;">{{ total_cogs|floatformat:2 }}</div>
+            </div></div>
+            <div class="col-4"><div class="erp-card p-3 text-center">
+                <div style="font-size:.7rem;color:#9ca3af;text-transform:uppercase;font-weight:600;">Gross Profit</div>
+                <div style="font-size:1.3rem;font-weight:800;color:#16a34a;">{{ total_gp|floatformat:2 }}</div>
+            </div></div>
+        </div>
+
+        <div class="erp-card p-4">
+            <div class="erp-card-header px-0 pt-0 mb-3">
+                <i class="bi bi-bar-chart me-1"></i>
+                Grouped by: <strong>{{ group_by|title }}</strong>
+                — {{ rows|length }} group{{ rows|length|pluralize }}
+            </div>
+            <div class="table-responsive">
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>{{ group_by|title }}</th>
+                            <th class="text-end">Qty Sold</th>
+                            <th class="text-end">Revenue (EGP)</th>
+                            <th class="text-end">COGS (EGP)</th>
+                            <th class="text-end">Gross Profit</th>
+                            <th class="text-end">Margin %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr>
+                            <td class="fw-semibold">{{ row.label }}</td>
+                            <td class="text-end">{{ row.qty }}</td>
+                            <td class="text-end">{{ row.revenue|floatformat:2 }}</td>
+                            <td class="text-end text-danger">{{ row.cogs|floatformat:2 }}</td>
+                            <td class="text-end fw-semibold" style="color:#16a34a;">{{ row.gp|floatformat:2 }}</td>
+                            <td class="text-end">
+                                <span class="badge" style="background:#f0fdf4;color:#16a34a;font-size:.72rem;">{{ row.margin|floatformat:1 }}%</span>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6" class="text-center text-muted py-4">No data matches the selected filters.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                    {% if rows %}
+                    <tfoot style="background:#fff5f2;border-top:2px solid #FF4500;">
+                        <tr>
+                            <td class="fw-bold">TOTAL</td>
+                            <td class="text-end fw-bold"></td>
+                            <td class="text-end fw-bold" style="color:#FF4500;">{{ total_rev|floatformat:2 }}</td>
+                            <td class="text-end fw-bold text-danger">{{ total_cogs|floatformat:2 }}</td>
+                            <td class="text-end fw-bold" style="color:#16a34a;">{{ total_gp|floatformat:2 }}</td>
+                            <td class="text-end fw-bold">—</td>
+                        </tr>
+                    </tfoot>
+                    {% endif %}
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="erp-card p-5 text-center text-muted">
+            <i class="bi bi-bar-chart" style="font-size:3rem;color:#e5e7eb;"></i>
+            <p class="mt-3 mb-0">Select your filters and click <strong>Run Report</strong> to see results.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+const GROUP_CHOICES = [
+    ['item','Menu Item'],['category','Category'],
+    ['day','Day'],['week','Week'],['month','Month']
+];
+// Populate group_by select
+const sel = document.querySelector('select[name="group_by"]');
+if (sel && !sel.options.length) {
+    GROUP_CHOICES.forEach(([v,l]) => {
+        const o = document.createElement('option');
+        o.value=v; o.textContent=l; sel.appendChild(o);
+    });
+}
+
+// Wire download buttons to pass current form params
+{% if results is not None %}
+const formEl = document.getElementById('custom-form');
+function getQueryString() {
+    return new URLSearchParams(new FormData(formEl)).toString();
+}
+document.getElementById('pdf-dl').addEventListener('click', function(e) {
+    e.preventDefault();
+    window.location.href = '{% url "reports:finance_custom_pdf" %}?' + getQueryString();
+});
+document.getElementById('xl-dl').addEventListener('click', function(e) {
+    e.preventDefault();
+    window.location.href = '{% url "reports:finance_custom_excel" %}?' + getQueryString();
+});
+{% endif %}
+</script>
+{% endblock %}

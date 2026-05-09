@@ -1,0 +1,415 @@
+{% extends "erp_base.html" %}
+{% block title %}Create Purchase Order{% endblock %}
+{% block page_title %}New Purchase Order{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">New Purchase Order</h1>
+        <p class="erp-page-sub">Order ingredients from a supplier</p>
+    </div>
+    <a href="{% url 'purchasing:purchase_orders' %}" class="btn btn-light btn-erp">
+        <i class="bi bi-arrow-left me-1"></i> Back
+    </a>
+</div>
+
+<form method="post" action="{% url 'purchasing:create_po' %}" id="po-form">
+{% csrf_token %}
+<div class="row g-4">
+
+    <!-- ── Order Details ─────────────────────────────────────────── -->
+    <div class="col-lg-4">
+        <div class="erp-card p-4">
+            <div class="erp-card-header mb-3 px-0 pt-0"><i class="bi bi-truck me-1"></i> Order Details</div>
+            <div class="mb-3">
+                <label class="erp-form-label">Supplier *</label>
+                <select name="supplier_id" class="erp-input" required>
+                    <option value="">Select supplier...</option>
+                    {% for sup in suppliers %}
+                    <option value="{{ sup.id }}">{{ sup.name }}</option>
+                    {% endfor %}
+                </select>
+                <div class="mt-1">
+                    <a href="{% url 'purchasing:suppliers' %}" target="_blank" class="small text-muted">+ Add supplier</a>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="erp-form-label">Expected Delivery Date</label>
+                <input type="date" name="expected_date" class="erp-input">
+            </div>
+            <div class="mb-3">
+                <label class="erp-form-label">Notes</label>
+                <textarea name="notes" class="erp-input" rows="3" placeholder="Any special instructions..."></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Line Items ─────────────────────────────────────────────── -->
+    <div class="col-lg-8">
+        <div class="erp-card p-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div class="erp-card-header px-0 pt-0 mb-0"><i class="bi bi-list-ul me-1"></i> Line Items</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary rounded-3" onclick="addLine()">
+                    <i class="bi bi-plus-lg me-1"></i> Add Item
+                </button>
+            </div>
+
+            <div id="lines-container"></div>
+
+            <!-- Grand total + submit -->
+            <div class="d-flex justify-content-between align-items-center mt-4 pt-3" style="border-top:2px solid #f0f0f0;">
+                <div>
+                    <div class="text-muted small fw-semibold">Grand Total</div>
+                    <div class="fw-bold mt-1" style="font-size:1.5rem;color:#FF4500;">
+                        <span id="grand-total">0.00</span> <span style="font-size:.9rem;color:#888;">EGP</span>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary-erp btn-erp px-5">
+                    <i class="bi bi-file-earmark-check me-1"></i> Create Purchase Order
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Ingredient metadata from server ─────────────────────────────────────
+const ING_DATA = {
+{% for ing in ingredients %}
+    "{{ ing.id }}": {
+        unit: "{{ ing.unit }}",
+        cost: "{{ ing.cost_per_unit }}",
+        upb:  {{ ing.units_per_box|default:1 }},
+        sub:  "{{ ing.sub_unit|default:'' }}"
+    },
+{% endfor %}
+};
+
+const SUB_LABEL  = { kg: 'g',  L: 'mL' };   // sub-unit name per main unit
+const SUB_FACTOR = { kg: 1000, L: 1000 };    // sub-units per main unit
+
+// Ingredient option HTML (built once, reused for each line)
+const ING_OPTIONS = `<option value="">Select ingredient...</option>` +
+    [{% for ing in ingredients %}`<option value="{{ ing.id }}" data-unit="{{ ing.unit }}" data-cost="{{ ing.cost_per_unit }}">{{ ing.name }}</option>`,{% endfor %}].join('');
+
+let lineIdx = 0;
+
+// ── Build a new line row HTML ────────────────────────────────────────────
+function buildLineHTML() {
+    return `
+    <div class="line-row mb-3 p-3 rounded-3" style="background:#fafafa;border:1px solid #eee;">
+        <div class="row g-2 align-items-start">
+
+            <!-- Ingredient -->
+            <div class="col-12 col-md-4">
+                <label class="erp-form-label" style="font-size:.67rem;">INGREDIENT</label>
+                <select name="ingredient_id" class="erp-input" onchange="onIngredientChange(this)">
+                    ${ING_OPTIONS}
+                </select>
+            </div>
+
+            <!-- Quantity + unit toggle -->
+            <div class="col-6 col-md-3">
+                <label class="erp-form-label" style="font-size:.67rem;">QUANTITY</label>
+                <input type="number" name="qty_entry" step="0.001" min="0"
+                    class="erp-input mb-1" placeholder="e.g. 3"
+                    oninput="calcLine(this.closest('.line-row'))">
+                <div class="d-flex gap-1">
+                    <!-- Unit toggle (shown for kg/L) -->
+                    <div class="unit-toggle-group d-none gap-1">
+                        <button type="button" class="btn-main-unit unit-btn"
+                            onclick="onUnitBtn(this, 'main')"
+                            style="font-size:.72rem;font-weight:700;padding:.22rem .5rem;border-radius:6px;cursor:pointer;border:1px solid #FF4500;background:#FF4500;color:#fff;">
+                            kg
+                        </button>
+                        <button type="button" class="btn-sub-unit unit-btn"
+                            onclick="onUnitBtn(this, 'sub')"
+                            style="font-size:.72rem;font-weight:700;padding:.22rem .5rem;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:#fff;color:#666;">
+                            g
+                        </button>
+                    </div>
+                    <!-- Simple unit label (shown for pieces/boxes) -->
+                    <span class="unit-badge-single d-none"
+                        style="font-size:.75rem;font-weight:700;color:#FF4500;background:#fff0eb;padding:.22rem .5rem;border-radius:6px;">—</span>
+                </div>
+                <input type="hidden" name="quantity" value="0">
+                <input type="hidden" name="input_unit" value="">
+            </div>
+
+            <!-- Cost entry -->
+            <div class="col-6 col-md-4">
+                <label class="erp-form-label cost-label" style="font-size:.67rem;">TOTAL PAID (EGP)</label>
+                <div class="d-flex gap-1 mb-1">
+                    <button type="button" class="btn-cost-total cost-mode-btn"
+                        onclick="onCostModeBtn(this, 'total')"
+                        style="font-size:.68rem;font-weight:700;padding:.22rem .5rem;border-radius:6px;cursor:pointer;border:1px solid #FF4500;background:#FF4500;color:#fff;white-space:nowrap;">
+                        Total Paid
+                    </button>
+                    <button type="button" class="btn-cost-perunit cost-mode-btn"
+                        onclick="onCostModeBtn(this, 'per_unit')"
+                        style="font-size:.68rem;font-weight:700;padding:.22rem .5rem;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:#fff;color:#666;white-space:nowrap;">
+                        Per Unit
+                    </button>
+                </div>
+                <input type="number" name="unit_cost_entry" step="0.0001" min="0"
+                    class="erp-input" placeholder="e.g. 600"
+                    oninput="calcLine(this.closest('.line-row'))">
+                <input type="hidden" name="unit_cost" value="0">
+                <input type="hidden" name="cost_mode" value="total">
+            </div>
+
+            <!-- Line total + remove -->
+            <div class="col-12 col-md-1">
+                <label class="erp-form-label" style="font-size:.67rem;">TOTAL</label>
+                <div class="d-flex align-items-center gap-1 mt-1">
+                    <span class="line-total fw-bold" style="white-space:nowrap;color:#1a1a1a;">0.00</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger rounded-3 ms-auto"
+                        onclick="removeLine(this)" style="padding:.2rem .45rem;">
+                        <i class="bi bi-trash" style="font-size:.72rem;"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Preview row -->
+        <div class="cost-preview text-muted mt-2" style="font-size:.75rem;min-height:1em;padding-left:2px;"></div>
+    </div>`;
+}
+
+// ── Add / remove lines ───────────────────────────────────────────────────
+function addLine() {
+    document.getElementById('lines-container').insertAdjacentHTML('beforeend', buildLineHTML());
+    // Activate "Total Paid" mode for new row
+    const rows = document.querySelectorAll('.line-row');
+    const newRow = rows[rows.length - 1];
+    activateCostBtn(newRow.querySelector('.btn-cost-total'));
+}
+
+function removeLine(btn) {
+    const rows = document.querySelectorAll('#lines-container .line-row');
+    if (rows.length <= 1) return;
+    btn.closest('.line-row').remove();
+    calcGrand();
+}
+
+// ── Ingredient selection ─────────────────────────────────────────────────
+function onIngredientChange(sel) {
+    const row   = sel.closest('.line-row');
+    const ingId = sel.value;
+    const data  = ING_DATA[ingId];
+    const toggle = row.querySelector('.unit-toggle-group');
+    const badge  = row.querySelector('.unit-badge-single');
+    const unitHid = row.querySelector('input[name="input_unit"]');
+
+    if (!data) {
+        toggle.classList.add('d-none');
+        badge.classList.add('d-none');
+        return;
+    }
+
+    const unit    = data.unit;
+    const hasSub  = !!SUB_LABEL[unit];
+
+    if (hasSub) {
+        // kg or L → show main/sub toggle
+        toggle.classList.remove('d-none');
+        toggle.style.display = 'flex';
+        badge.classList.add('d-none');
+        const btnMain = toggle.querySelector('.btn-main-unit');
+        const btnSub  = toggle.querySelector('.btn-sub-unit');
+        btnMain.textContent = unit;
+        btnSub.textContent  = SUB_LABEL[unit];
+        // Default active: main unit
+        activateUnitBtn(btnMain, row, unit, unit);
+    } else {
+        toggle.classList.add('d-none');
+        badge.classList.remove('d-none');
+        badge.textContent = unit;
+        if (unitHid) unitHid.value = unit;
+    }
+
+    // Auto-fill cost if field is empty and ingredient has a known cost
+    const costEntry = row.querySelector('input[name="unit_cost_entry"]');
+    const costMode  = row.querySelector('input[name="cost_mode"]');
+    if (costEntry && !costEntry.value && parseFloat(data.cost) > 0) {
+        const costPerSubUnit = parseFloat(data.cost); // always stored as cost per sub-unit (or per kg/L)
+        let displayCost;
+        if (data.unit === 'boxes' && data.upb > 0) {
+            // For boxes: show cost PER BOX = cost_per_can * cans_per_box
+            displayCost = (costPerSubUnit * data.upb).toFixed(2);
+        } else {
+            displayCost = costPerSubUnit.toFixed(2);
+        }
+        costEntry.value = displayCost;
+        // Switch to "per unit" mode
+        onCostModeBtn(row.querySelector('.btn-cost-perunit'), 'per_unit');
+        if (costMode) costMode.value = 'per_unit';
+    }
+
+    calcLine(row);
+}
+
+// ── Unit toggle (kg ↔ g) ────────────────────────────────────────────────
+function onUnitBtn(btn, which) {
+    const row      = btn.closest('.line-row');
+    const sel      = row.querySelector('select[name="ingredient_id"]');
+    const data     = ING_DATA[sel.value] || {};
+    const mainUnit  = data.unit || 'kg';
+    const prevUnit  = row.querySelector('input[name="input_unit"]')?.value || mainUnit;
+    const chosenUnit = which === 'sub' ? (SUB_LABEL[mainUnit] || mainUnit) : mainUnit;
+    activateUnitBtn(btn, row, mainUnit, chosenUnit);
+
+    // Cost per unit is always in main unit (kg/L) — don't convert when switching quantity units
+    // The quantity toggle only affects how you enter qty (700g vs 0.7kg), not the cost field
+
+    calcLine(row);
+}
+
+function activateUnitBtn(btn, row, mainUnit, chosenUnit) {
+    const grp = row.querySelector('.unit-toggle-group');
+    grp.querySelectorAll('.unit-btn').forEach(b => {
+        b.style.background   = '#fff';
+        b.style.color        = '#666';
+        b.style.borderColor  = '#ddd';
+    });
+    btn.style.background  = '#FF4500';
+    btn.style.color       = '#fff';
+    btn.style.borderColor = '#FF4500';
+    const unitHid = row.querySelector('input[name="input_unit"]');
+    if (unitHid) unitHid.value = chosenUnit;
+    updateCostLabel(row, mainUnit, chosenUnit);
+}
+
+// ── Cost mode toggle (Total Paid ↔ Per Unit) ────────────────────────────
+function onCostModeBtn(btn, mode) {
+    const row = btn.closest('.line-row');
+    activateCostBtn(mode === 'total' ? row.querySelector('.btn-cost-total') : row.querySelector('.btn-cost-perunit'));
+    const modeHid = row.querySelector('input[name="cost_mode"]');
+    if (modeHid) modeHid.value = mode;
+
+    const sel = row.querySelector('select[name="ingredient_id"]');
+    const data = ING_DATA[sel.value] || {};
+    const mainUnit   = data.unit || '';
+    const inputUnit  = row.querySelector('input[name="input_unit"]')?.value || mainUnit;
+    updateCostLabel(row, mainUnit, inputUnit);
+    calcLine(row);
+}
+
+function activateCostBtn(btn) {
+    if (!btn) return;
+    const row = btn.closest('.line-row');
+    row.querySelectorAll('.cost-mode-btn').forEach(b => {
+        b.style.background  = '#fff';
+        b.style.color       = '#666';
+        b.style.borderColor = '#ddd';
+    });
+    btn.style.background  = '#FF4500';
+    btn.style.color       = '#fff';
+    btn.style.borderColor = '#FF4500';
+}
+
+function updateCostLabel(row, mainUnit, inputUnit) {
+    const mode  = row.querySelector('input[name="cost_mode"]')?.value || 'total';
+    const label = row.querySelector('.cost-label');
+    if (!label) return;
+    const sel  = row.querySelector('select[name="ingredient_id"]');
+    const data = sel && sel.value ? ING_DATA[sel.value] : null;
+    if (mode === 'total') {
+        label.textContent = 'TOTAL PAID (EGP)';
+    } else if (data && data.unit === 'boxes') {
+        label.textContent = `COST PER BOX (EGP)`;
+    } else {
+        label.textContent = `COST PER ${(mainUnit || inputUnit).toUpperCase()} (EGP)`;
+    }
+}
+
+// ── Line calculation ─────────────────────────────────────────────────────
+function calcLine(row) {
+    const sel     = row.querySelector('select[name="ingredient_id"]');
+    const ingId   = sel ? sel.value : '';
+    const data    = ingId ? ING_DATA[ingId] : null;
+
+    if (!data) {
+        row.querySelector('.line-total').textContent = '0.00';
+        calcGrand();
+        return;
+    }
+
+    const mainUnit   = data.unit;
+    const inputUnit  = row.querySelector('input[name="input_unit"]')?.value || mainUnit;
+    const costMode   = row.querySelector('input[name="cost_mode"]')?.value || 'total';
+    const qtyRaw     = parseFloat(row.querySelector('input[name="qty_entry"]')?.value) || 0;
+    const costRaw    = parseFloat(row.querySelector('input[name="unit_cost_entry"]')?.value) || 0;
+
+    // Is the user entering in sub-unit (g / mL)?
+    const factor  = SUB_FACTOR[mainUnit] || 1;
+    const isSub   = SUB_LABEL[mainUnit] && inputUnit === SUB_LABEL[mainUnit];
+    const qtyMain = isSub ? qtyRaw / factor : qtyRaw;   // always in kg / L / pieces
+
+    let lineTotal = 0;
+    let cpuMain   = 0;  // cost per main unit (what we store)
+
+    if (costMode === 'total') {
+        // User entered the total EGP they paid for the whole quantity
+        lineTotal = costRaw;
+        cpuMain   = qtyMain > 0 ? costRaw / qtyMain : 0;
+    } else {
+        // User entered cost per MAIN unit (always kg/L/pieces, never g/mL)
+        // The quantity unit toggle only changes how qty is entered, not the cost basis
+        cpuMain   = costRaw;
+        lineTotal = qtyMain * cpuMain;
+    }
+
+    // Update line total display
+    row.querySelector('.line-total').textContent = lineTotal.toFixed(2);
+
+    // Live preview
+    const preview = row.querySelector('.cost-preview');
+    if (preview) {
+        if (qtyMain > 0 && lineTotal > 0) {
+            const dispQty = isSub
+                ? `${qtyRaw} ${inputUnit} = <strong>${qtyMain.toFixed(3)} ${mainUnit}</strong>`
+                : `${qtyRaw} ${mainUnit}`;
+            const data2 = ingId ? ING_DATA[ingId] : null;
+            const isBox = data2 && data2.unit === 'boxes';
+            preview.innerHTML =
+                `<i class="bi bi-arrow-right-short"></i> ${dispQty} &nbsp;·&nbsp; ` +
+                (isBox
+                    ? `Cost / box: <strong style="color:#FF4500;">${cpuMain.toFixed(2)} EGP</strong> &nbsp;·&nbsp; `
+                    : `Cost / ${mainUnit}: <strong style="color:#FF4500;">${cpuMain.toFixed(4)} EGP</strong> &nbsp;·&nbsp; `) +
+                `Total: <strong>${lineTotal.toFixed(2)} EGP</strong>` +
+                (isSub ? ` &nbsp;<span style="color:#888;font-size:.7rem;">(qty in ${inputUnit}, cost per ${mainUnit})</span>` : '');
+        } else {
+            preview.innerHTML = '';
+        }
+    }
+
+    // Write hidden fields for server submission
+    const qtyHid = row.querySelector('input[name="quantity"]');
+    const ucHid  = row.querySelector('input[name="unit_cost"]');
+    if (qtyHid) qtyHid.value = qtyMain.toFixed(6);
+    if (ucHid)  ucHid.value  = cpuMain.toFixed(6);
+
+    calcGrand();
+}
+
+function calcGrand() {
+    let total = 0;
+    document.querySelectorAll('#lines-container .line-total').forEach(el => {
+        total += parseFloat(el.textContent) || 0;
+    });
+    document.getElementById('grand-total').textContent = total.toFixed(2);
+}
+
+// ── Init: add first line on page load ───────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    addLine();  // Start with one empty line
+});
+
+// ── Ensure hidden fields are computed before form submits ────────────────
+document.getElementById('po-form').addEventListener('submit', function() {
+    document.querySelectorAll('#lines-container .line-row').forEach(row => calcLine(row));
+});
+</script>
+{% endblock %}

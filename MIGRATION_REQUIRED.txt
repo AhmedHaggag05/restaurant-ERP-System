@@ -1,0 +1,32 @@
+==============================================================
+  ACTION REQUIRED — Run this ONCE after extracting v7+
+==============================================================
+
+The dashboard was crashing with:
+  "Unknown column 'core_orderitem.cogs_at_sale'"
+
+This is because a new database column was added but the
+migration hasn't been run yet.
+
+FIX — Run this command in your project folder:
+
+  python manage.py migrate
+
+That's it. The app will work immediately after.
+
+--------------------------------------------------------------
+OPTION B — Manual SQL (if you prefer not to use Django):
+--------------------------------------------------------------
+Open MySQL and run this SQL command:
+
+  ALTER TABLE core_orderitem
+  ADD COLUMN cogs_at_sale DECIMAL(10,4) NOT NULL DEFAULT 0;
+
+--------------------------------------------------------------
+GOOD NEWS:
+--------------------------------------------------------------
+The app is now coded to survive WITHOUT the migration too —
+if you forget to migrate, the dashboard and all pages will
+still load (COGS snapshots just won't be stored until you migrate).
+
+==============================================================

@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center align-items-center animate-fade-in" style="min-height: 80vh;">
+    <div class="col-md-5 col-lg-4">
+        <div class="card border-0 shadow-lg rounded-5 overflow-hidden">
+            <div class="card-body p-5">
+                <div class="text-center mb-5">
+                    <div class="bg-soft text-vibrant d-inline-flex p-4 rounded-circle mb-4">
+                        <i class="bi bi-shield-lock-fill display-5"></i>
+                    </div>
+                    <h2 class="fw-bold h1" style="letter-spacing: -1.5px;">Sign In</h2>
+                    <p class="text-secondary">Enter your credentials to access the system</p>
+                </div>
+                
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-4">
+                        <label for="id_username" class="form-label text-secondary small fw-bold text-uppercase ms-1">Username</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-0 rounded-start-4 px-3"><i class="bi bi-person text-secondary"></i></span>
+                            <input type="text" name="username" class="form-control bg-light border-0 rounded-end-4 py-3" id="id_username" placeholder="Username" required>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label for="id_password" class="form-label text-secondary small fw-bold text-uppercase ms-1">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-0 rounded-start-4 px-3"><i class="bi bi-key text-secondary"></i></span>
+                            <input type="password" name="password" class="form-control bg-light border-0 rounded-end-4 py-3" id="id_password" placeholder="Password" required>
+                        </div>
+                    </div>
+                    <div class="d-grid gap-2 mt-5">
+                        <button type="submit" class="btn btn-vibrant btn-lg py-3 rounded-4 shadow-sm">
+                            LOGIN <i class="bi bi-arrow-right-short ms-1 fs-4"></i>
+                        </button>
+                    </div>
+                </form>
+
+                {% if form.errors %}
+                <div class="alert alert-danger mt-4 border-0 rounded-4 bg-danger bg-opacity-10 text-danger small text-center" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i> Invalid username or password.
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-footer bg-light border-0 py-4 text-center">
+                <small class="text-secondary fw-bold text-uppercase letter-spacing-1">Searing Sandwiches v1.0</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .rounded-start-4 { border-radius: 1rem 0 0 1rem !important; }
+    .rounded-end-4 { border-radius: 0 1rem 1rem 0 !important; }
+    .rounded-4 { border-radius: 1rem !important; }
+    .rounded-5 { border-radius: 2rem !important; }
+</style>
+{% endblock %}

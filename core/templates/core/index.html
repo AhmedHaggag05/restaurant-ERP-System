@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Welcome | Searing Sandwiches{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center align-items-center animate-fade-in" style="min-height: 80vh;">
+    <div class="col-lg-10 text-center">
+        <div class="mb-4">
+            <span class="badge bg-soft text-vibrant px-3 py-2 rounded-pill fw-bold text-uppercase letter-spacing-1">Next-Gen POS Solution</span>
+        </div>
+        <h1 class="display-2 fw-extrabold mb-4" style="letter-spacing: -3px;">
+            The Smarter way to <br><span class="text-vibrant">Manage Your Kitchen.</span>
+        </h1>
+        <p class="lead mb-5 text-secondary px-lg-5 mx-lg-5">
+            Empower your team with a lightning-fast cashier interface, automated inventory control, and detailed sales analytics.
+        </p>
+        
+        <div class="row g-4 justify-content-center mt-2">
+            <div class="col-md-5">
+                <div class="card h-100 p-4 border-0 shadow-lg text-start rounded-5">
+                    <div class="item-icon mb-4 ms-0" style="width: 50px; height: 50px; font-size: 1.5rem;">
+                        <i class="bi bi-lightning-charge-fill"></i>
+                    </div>
+                    <h3 class="fw-bold mb-3">Speedy Checkout</h3>
+                    <p class="text-secondary mb-4">A touch-friendly interface designed for high-volume service. Add items, take notes, and print receipts in seconds.</p>
+                    <a href="{% url 'pos' %}" class="btn btn-vibrant mt-auto rounded-pill px-4 py-2">
+                        Start Selling <i class="bi bi-arrow-right ms-2"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="col-md-5">
+                <div class="card h-100 p-4 border-0 shadow-lg text-start rounded-5">
+                    <div class="item-icon mb-4 ms-0" style="width: 50px; height: 50px; font-size: 1.5rem; background-color: #E8F5FF; color: #007BFF;">
+                        <i class="bi bi-pie-chart-fill"></i>
+                    </div>
+                    <h3 class="fw-bold mb-3">Smart Insights</h3>
+                    <p class="text-secondary mb-4">Real-time stock tracking for liver, sausage, and ingredients. Detailed sales reports to help you grow your business.</p>
+                    <a href="{% url 'dashboard' %}" class="btn btn-outline-dark mt-auto rounded-pill px-4 py-2">
+                        View Analytics <i class="bi bi-bar-chart-line ms-2"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-5 pt-5 opacity-50">
+            <p class="small text-uppercase fw-bold letter-spacing-2 text-secondary">Trusted by modern fast-food chains</p>
+            <div class="d-flex justify-content-center gap-5 fs-3 text-secondary">
+                <i class="bi bi-fire"></i>
+                <i class="bi bi-cup-hot"></i>
+                <i class="bi bi-box-seam"></i>
+                <i class="bi bi-egg"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .fw-extrabold { font-weight: 800; }
+    .letter-spacing-1 { letter-spacing: 1px; }
+    .letter-spacing-2 { letter-spacing: 2px; }
+    .rounded-5 { border-radius: 2rem !important; }
+</style>
+{% endblock %}

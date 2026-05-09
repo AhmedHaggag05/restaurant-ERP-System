@@ -1,0 +1,9 @@
+node_modules/
+*/node_modules/
+*/build/
+.env
+.idea/
+__pycache__/
+*.py[cod]
+staticfiles/
+db.sqlite3

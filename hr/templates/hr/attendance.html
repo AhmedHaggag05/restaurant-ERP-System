@@ -1,0 +1,214 @@
+{% extends "erp_base.html" %}
+{% load hr_tags %}
+{% block title %}Attendance{% endblock %}
+{% block page_title %}Attendance{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Attendance</h1>
+        <p class="erp-page-sub">Track daily attendance — check-in and check-out independently per employee</p>
+    </div>
+    <form method="get" class="d-flex gap-2 align-items-center">
+        <input type="date" name="date" value="{{ sel_date }}" class="erp-input" style="width:170px;">
+        <button class="btn btn-erp btn-primary-erp">Go</button>
+    </form>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-sm-4"><div class="stat-card">
+        <div class="stat-icon" style="background:#f0fdf4;color:#16a34a;"><i class="bi bi-person-check"></i></div>
+        <div class="stat-label">Present Today</div>
+        <div class="stat-value">{{ present }}</div>
+        <div class="stat-sub">out of {{ total }}</div>
+    </div></div>
+    <div class="col-sm-4"><div class="stat-card">
+        <div class="stat-icon" style="background:#fef2f2;color:#dc2626;"><i class="bi bi-person-x"></i></div>
+        <div class="stat-label">Absent / Unrecorded</div>
+        <div class="stat-value">{{ absent }}</div>
+    </div></div>
+    <div class="col-sm-4"><div class="stat-card">
+        <div class="stat-icon" style="background:#fff0eb;color:#FF4500;"><i class="bi bi-calendar-date"></i></div>
+        <div class="stat-label">Date</div>
+        <div class="stat-value" style="font-size:1.1rem;">{{ sel_date }}</div>
+    </div></div>
+</div>
+
+<div class="erp-card">
+    <div class="erp-card-header"><i class="bi bi-calendar3"></i> Attendance — {{ sel_date }}</div>
+    <table class="erp-table">
+        <thead>
+            <tr>
+                <th>Employee</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Check In <span class="text-muted fw-normal" style="font-size:.7rem;">(save with ✓)</span></th>
+                <th>Check Out <span class="text-muted fw-normal" style="font-size:.7rem;">(save with ✓)</span></th>
+                <th>Notes</th>
+                <th>Full Edit</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for emp in employees %}
+        {% with rec=records|get_item:emp.id %}
+        <tr>
+            <td><strong>{{ emp.full_name }}</strong></td>
+            <td class="text-muted" style="font-size:.82rem;">{{ emp.get_job_title_display }}</td>
+
+            <!-- Status — dropdown submits on change -->
+            <td>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="employee_id" value="{{ emp.id }}">
+                    <input type="hidden" name="date" value="{{ sel_date }}">
+                    <input type="hidden" name="check_in" value="{% if rec and rec.check_in %}{{ rec.check_in|time:"H:i" }}{% endif %}">
+                    <input type="hidden" name="check_out" value="{% if rec and rec.check_out %}{{ rec.check_out|time:"H:i" }}{% endif %}">
+                    <input type="hidden" name="notes" value="{% if rec %}{{ rec.notes }}{% endif %}">
+                    <select name="status" class="erp-input" style="width:115px;font-size:.75rem;padding:.3rem .5rem;" onchange="this.form.submit()">
+                        {% if not rec %}<option value="" selected disabled>— Set —</option>{% endif %}
+                        {% for val, label in STATUS_CHOICES %}
+                        <option value="{{ val }}" {% if rec and rec.status == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </td>
+
+            <!-- Check In — time input with its own save button -->
+            <td>
+                <form method="post" class="d-flex gap-1 align-items-center">
+                    {% csrf_token %}
+                    <input type="hidden" name="employee_id" value="{{ emp.id }}">
+                    <input type="hidden" name="date" value="{{ sel_date }}">
+                    <input type="hidden" name="status" value="{% if rec %}{{ rec.status }}{% else %}present{% endif %}">
+                    <input type="hidden" name="check_out" value="{% if rec and rec.check_out %}{{ rec.check_out|time:"H:i" }}{% endif %}">
+                    <input type="hidden" name="notes" value="{% if rec %}{{ rec.notes }}{% endif %}">
+                    <input type="time" name="check_in"
+                        value="{% if rec and rec.check_in %}{{ rec.check_in|time:"H:i" }}{% endif %}"
+                        class="erp-input"
+                        style="width:112px;font-size:.82rem;padding:.3rem .5rem;">
+                    <button type="submit"
+                        class="btn btn-sm rounded-2 flex-shrink-0"
+                        style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:.28rem .55rem;"
+                        title="Save check-in time">
+                        <i class="bi bi-check2 fw-bold"></i>
+                    </button>
+                </form>
+            </td>
+
+            <!-- Check Out — time input with its own save button -->
+            <td>
+                <form method="post" class="d-flex gap-1 align-items-center">
+                    {% csrf_token %}
+                    <input type="hidden" name="employee_id" value="{{ emp.id }}">
+                    <input type="hidden" name="date" value="{{ sel_date }}">
+                    <input type="hidden" name="status" value="{% if rec %}{{ rec.status }}{% else %}present{% endif %}">
+                    <input type="hidden" name="check_in" value="{% if rec and rec.check_in %}{{ rec.check_in|time:"H:i" }}{% endif %}">
+                    <input type="hidden" name="notes" value="{% if rec %}{{ rec.notes }}{% endif %}">
+                    <input type="time" name="check_out"
+                        value="{% if rec and rec.check_out %}{{ rec.check_out|time:"H:i" }}{% endif %}"
+                        class="erp-input"
+                        style="width:112px;font-size:.82rem;padding:.3rem .5rem;">
+                    <button type="submit"
+                        class="btn btn-sm rounded-2 flex-shrink-0"
+                        style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;padding:.28rem .55rem;"
+                        title="Save check-out time">
+                        <i class="bi bi-check2 fw-bold"></i>
+                    </button>
+                </form>
+            </td>
+
+            <!-- Notes (read-only in row) -->
+            <td class="text-muted" style="font-size:.82rem;max-width:140px;">{{ rec.notes|default:"—"|truncatechars:30 }}</td>
+
+            <!-- Full Edit button → modal -->
+            <td>
+                <button class="btn btn-sm btn-outline-secondary rounded-3"
+                    title="Edit full record (status, times, notes)"
+                    onclick="openAttendanceModal(
+                        {{ emp.id }},
+                        '{{ emp.full_name|escapejs }}',
+                        '{{ sel_date }}',
+                        '{% if rec %}{{ rec.status }}{% endif %}',
+                        '{% if rec and rec.check_in %}{{ rec.check_in|time:"H:i" }}{% endif %}',
+                        '{% if rec and rec.check_out %}{{ rec.check_out|time:"H:i" }}{% endif %}',
+                        '{% if rec %}{{ rec.notes|escapejs }}{% endif %}'
+                    )">
+                    <i class="bi bi-pencil-square"></i>
+                </button>
+            </td>
+        </tr>
+        {% endwith %}
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No active employees found.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Full Record Edit Modal -->
+<div class="modal fade" id="attendanceModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-1">
+                <h5 class="modal-title fw-bold">Edit Attendance Record</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="employee_id" id="att-emp-id">
+                <input type="hidden" name="date" id="att-date">
+                <div class="modal-body px-4 pt-2">
+                    <div class="mb-3 p-3 rounded-3" style="background:#f8f9fa;">
+                        <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">Employee</div>
+                        <div class="fw-bold mt-1" id="att-emp-name"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="erp-form-label">Status</label>
+                        <select name="status" id="att-status" class="erp-input">
+                            {% for val, label in STATUS_CHOICES %}
+                            <option value="{{ val }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="erp-form-label">Check In Time</label>
+                            <input type="time" name="check_in" id="att-checkin" class="erp-input">
+                            <div style="font-size:.7rem;color:#aaa;margin-top:.25rem;">Leave blank if not applicable</div>
+                        </div>
+                        <div class="col-6">
+                            <label class="erp-form-label">Check Out Time</label>
+                            <input type="time" name="check_out" id="att-checkout" class="erp-input">
+                            <div style="font-size:.7rem;color:#aaa;margin-top:.25rem;">Can be filled later</div>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="erp-form-label">Notes</label>
+                        <input type="text" name="notes" id="att-notes" class="erp-input" placeholder="e.g. left early, doctor visit">
+                    </div>
+                </div>
+                <div class="modal-footer border-0 px-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-erp btn-erp px-4">
+                        <i class="bi bi-check2-circle me-1"></i> Save Record
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openAttendanceModal(empId, empName, date, status, checkIn, checkOut, notes) {
+    document.getElementById('att-emp-id').value = empId;
+    document.getElementById('att-emp-name').textContent = empName;
+    document.getElementById('att-date').value = date;
+    if (status) document.getElementById('att-status').value = status;
+    document.getElementById('att-checkin').value = checkIn || '';
+    document.getElementById('att-checkout').value = checkOut || '';
+    document.getElementById('att-notes').value = notes || '';
+    new bootstrap.Modal(document.getElementById('attendanceModal')).show();
+}
+</script>
+{% endblock %}

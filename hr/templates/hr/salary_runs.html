@@ -1,0 +1,81 @@
+{% extends "erp_base.html" %}
+{% block title %}Payroll{% endblock %}
+{% block page_title %}Payroll{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Payroll</h1>
+        <p class="erp-page-sub">Salary runs and payment history</p>
+    </div>
+    <button class="btn btn-erp btn-primary-erp" data-bs-toggle="modal" data-bs-target="#createRunModal">
+        <i class="bi bi-plus-lg me-1"></i> New Salary Run
+    </button>
+</div>
+
+<div class="erp-card">
+    <div class="erp-card-header"><i class="bi bi-cash-stack"></i> Salary Runs</div>
+    <table class="erp-table">
+        <thead>
+            <tr><th>Period</th><th>Run Date</th><th class="text-end">Gross</th><th class="text-end">Deductions</th><th class="text-end">Net</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+        {% for run in runs %}
+        <tr>
+            <td><strong>{{ run.period_start }} → {{ run.period_end }}</strong></td>
+            <td>{{ run.run_date }}</td>
+            <td class="text-end">{{ run.total_gross|floatformat:2 }}</td>
+            <td class="text-end">{{ run.total_deductions|floatformat:2 }}</td>
+            <td class="text-end fw-bold">{{ run.total_net|floatformat:2 }}</td>
+            <td><span class="status-badge status-{{ run.status }}">{{ run.get_status_display }}</span></td>
+            <td>
+                <a href="{% url 'hr:salary_run_detail' run.pk %}" class="btn btn-sm btn-outline-secondary rounded-3">
+                    <i class="bi bi-eye"></i> View
+                </a>
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No salary runs yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Create Salary Run Modal -->
+<div class="modal fade" id="createRunModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold">New Salary Run</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{% url 'hr:create_salary_run' %}">
+                {% csrf_token %}
+                <div class="modal-body px-4">
+                    <div class="p-3 rounded-3 mb-3" style="background:#fff8f5;border:1px solid #ffd5c8;">
+                        <small class="text-muted"><i class="bi bi-info-circle me-1"></i>
+                        Salary lines will be auto-generated for all active employees based on attendance in the period.</small>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="erp-form-label">Period Start</label>
+                            <input type="date" name="period_start" class="erp-input" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="erp-form-label">Period End</label>
+                            <input type="date" name="period_end" class="erp-input" required>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <label class="erp-form-label">Notes</label>
+                        <textarea name="notes" class="erp-input" rows="2" placeholder="Optional notes"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 px-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-erp btn-erp px-4">Create Run</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

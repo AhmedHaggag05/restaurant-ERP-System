@@ -1,0 +1,454 @@
+{% extends 'erp_base.html' %}
+{% block page_title %}Sales Report{% endblock %}
+{% block title %}Financial Report | Searing Sandwiches{% endblock %}
+
+{% block extra_css %}
+<style>
+.kpi-card { border-radius: 16px; padding: 1.4rem 1.6rem; border: 0; }
+.kpi-label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; opacity: .7; margin-bottom: .3rem; }
+.kpi-value { font-size: 1.9rem; font-weight: 800; line-height: 1; }
+.kpi-sub   { font-size: .8rem; margin-top: .4rem; opacity: .7; }
+.pl-row { display:flex; justify-content:space-between; align-items:center; padding: .55rem 0; border-bottom: 1px solid #f0f0f0; }
+.pl-row:last-child { border-bottom: 0; }
+.pl-label { font-size: .9rem; color: #555; }
+.pl-value { font-size: .95rem; font-weight: 700; }
+.pl-total { background:#fff8f5; border-radius:10px; padding:.7rem 1rem; margin-top:.5rem; }
+.section-card { border:0; border-radius:16px; box-shadow:0 2px 16px rgba(0,0,0,.06); }
+.badge-margin { font-size:.75rem; padding:.3em .7em; border-radius:20px; }
+.chart-wrap { position:relative; height:220px; }
+.filter-bar { background:#fff; border-radius:14px; box-shadow:0 2px 12px rgba(0,0,0,.05); padding:1.2rem 1.4rem; margin-bottom:1.5rem; }
+.text-vibrant  { color: #FF4500 !important; }
+.btn-vibrant   { background:#FF4500; color:#fff; border:none; }
+.btn-vibrant:hover { background:#e03d00; color:#fff; }
+.section-title { font-size:1.4rem; font-weight:800; color:#1a1d23; }
+.animate-fade-in { animation: fadeIn .3s ease; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+.item-badge { background:#fff0eb; color:#FF4500; border:1px solid rgba(255,69,0,.2); font-size:.75rem; font-weight:600; padding:.2rem .6rem; border-radius:999px; white-space:nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+
+    <!-- Header -->
+    <div class="mb-3">
+        <h1 class="section-title mb-1">Financial Report</h1>
+        <p class="text-secondary mb-3">Full P&amp;L — Revenue, COGS, Payroll, Expenses, Net Profit</p>
+        <div class="d-flex gap-2 flex-wrap align-items-center">
+            <span class="small text-secondary fw-bold text-uppercase me-1" style="letter-spacing:.05em;">Export:</span>
+            <a href="{% url 'pdf_report_financial' %}{% if date_from or date_to %}?date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
+               class="btn btn-sm btn-outline-danger rounded-pill px-3">
+                <i class="bi bi-file-earmark-pdf me-1"></i> PDF Financial
+            </a>
+            <a href="{% url 'pdf_report_ingredients' %}{% if date_from or date_to %}?date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
+               class="btn btn-sm btn-outline-danger rounded-pill px-3">
+                <i class="bi bi-file-earmark-pdf me-1"></i> PDF Ingredients
+            </a>
+            <a href="{% url 'excel_report_financial' %}{% if date_from or date_to %}?date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
+               class="btn btn-sm btn-outline-success rounded-pill px-3">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i> Excel Financial
+            </a>
+            <a href="{% url 'excel_report_ingredients' %}{% if date_from or date_to %}?date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
+               class="btn btn-sm btn-outline-success rounded-pill px-3">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i> Excel Ingredients
+            </a>
+            <a href="{% url 'excel_report_sales' %}{% if date_from or date_to %}?date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
+               class="btn btn-sm btn-outline-success rounded-pill px-3">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i> Excel Orders
+            </a>
+        </div>
+    </div>
+
+    <!-- Date filter -->
+    <div class="filter-bar">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label text-secondary small fw-bold text-uppercase mb-1">From</label>
+                <input type="date" name="date_from" value="{{ date_from }}" class="form-control rounded-3">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label text-secondary small fw-bold text-uppercase mb-1">To</label>
+                <input type="date" name="date_to" value="{{ date_to }}" class="form-control rounded-3">
+            </div>
+            <div class="col-md-4 d-flex gap-2">
+                <button type="submit" class="btn btn-vibrant rounded-pill px-4 flex-grow-1">
+                    <i class="bi bi-funnel me-1"></i> Filter
+                </button>
+                <a href="{% url 'sales_report' %}" class="btn btn-outline-secondary rounded-pill px-3">Clear</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- ── KPI Row ───────────────────────────────────────────────────────── -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="kpi-card shadow-sm h-100" style="background:linear-gradient(135deg,#FF4500,#FF7A45);color:white;">
+                <div class="kpi-label">Revenue</div>
+                <div class="kpi-value">{{ total_revenue|floatformat:2 }}</div>
+                <div class="kpi-sub">EGP &bull; {{ total_orders }} orders</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card shadow-sm h-100 bg-white">
+                <div class="kpi-label text-secondary">Gross Profit</div>
+                <div class="kpi-value {% if gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ gross_profit|floatformat:2 }}</div>
+                <div class="kpi-sub text-secondary">EGP &bull; margin {{ gross_margin }}%</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card shadow-sm h-100 bg-white">
+                <div class="kpi-label text-secondary">Net Profit</div>
+                <div class="kpi-value {% if net_profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ net_profit|floatformat:2 }}</div>
+                <div class="kpi-sub text-secondary">EGP &bull; margin {{ net_margin }}%</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card shadow-sm h-100 bg-white">
+                <div class="kpi-label text-secondary">Items Sold</div>
+                <div class="kpi-value text-dark">{{ total_items_sold }}</div>
+                <div class="kpi-sub text-secondary">units &bull; {{ total_discounts|floatformat:2 }} EGP discounted</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+
+        <!-- ── P&L Statement ──────────────────────────────────────────────── -->
+        <div class="col-lg-5">
+            <div class="card section-card h-100">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">Profit &amp; Loss Statement</h5>
+
+                    <div class="pl-row">
+                        <span class="pl-label">Gross Revenue</span>
+                        <span class="pl-value text-dark">{{ total_revenue|floatformat:2 }} EGP</span>
+                    </div>
+                    <div class="pl-row">
+                        <span class="pl-label text-danger">— Discounts Given</span>
+                        <span class="pl-value text-danger">-{{ total_discounts|floatformat:2 }} EGP</span>
+                    </div>
+                    <div class="pl-row">
+                        <span class="pl-label fw-bold">Net Revenue</span>
+                        <span class="pl-value">{{ total_revenue|floatformat:2 }} EGP</span>
+                    </div>
+
+                    <div class="pl-row mt-1">
+                        <span class="pl-label text-danger">— Cost of Goods (COGS)</span>
+                        <span class="pl-value text-danger">-{{ total_cogs|floatformat:2 }} EGP</span>
+                    </div>
+                    <div class="pl-row">
+                        <span class="pl-label fw-semibold">Gross Profit</span>
+                        <span class="pl-value {% if gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                            {{ gross_profit|floatformat:2 }} EGP
+                            <small class="text-secondary fw-normal">({{ gross_margin }}%)</small>
+                        </span>
+                    </div>
+
+                    <div class="pl-row mt-1">
+                        <span class="pl-label text-danger">— Payroll (period)</span>
+                        <span class="pl-value text-danger">-{{ period_payroll|floatformat:2 }} EGP</span>
+                    </div>
+                    <div class="pl-row">
+                        <span class="pl-label text-danger">— Other Expenses</span>
+                        <span class="pl-value text-danger">-{{ total_expenses|floatformat:2 }} EGP</span>
+                    </div>
+
+                    <div class="pl-total mt-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="fw-bold fs-6">Net Profit</span>
+                            <span class="fw-bold fs-5 {% if net_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                {{ net_profit|floatformat:2 }} EGP
+                                <small class="text-secondary fw-normal fs-6">({{ net_margin }}%)</small>
+                            </span>
+                        </div>
+                    </div>
+
+                    {% if expense_by_cat %}
+                    <h6 class="fw-bold mt-4 mb-2 small text-uppercase text-secondary">Expenses by Category</h6>
+                    {% for cat, amt in expense_by_cat.items %}
+                    <div class="pl-row">
+                        <span class="pl-label small">{{ cat }}</span>
+                        <span class="pl-value small text-danger">{{ amt|floatformat:2 }} EGP</span>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Revenue chart ──────────────────────────────────────────────── -->
+        <div class="col-lg-7">
+            <div class="card section-card mb-4">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">Revenue vs Cost vs Profit</h5>
+                    <div class="chart-wrap">
+                        <canvas id="revenueChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payroll breakdown -->
+            <div class="card section-card">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold mb-0">Payroll</h5>
+                        <span class="badge bg-danger bg-opacity-10 text-danger rounded-pill px-3">
+                            {{ monthly_payroll|floatformat:2 }} EGP / month
+                        </span>
+                    </div>
+                    {% if employees %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="bg-light">
+                                <tr class="text-secondary small text-uppercase">
+                                    <th class="border-0 py-2">Name</th>
+                                    <th class="border-0 py-2">Role</th>
+                                    <th class="border-0 py-2 text-end">Salary</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for emp in employees %}
+                                <tr>
+                                    <td class="py-2 fw-bold small">{{ emp.full_name }}</td>
+                                    <td class="small text-secondary">{{ emp.get_job_title_display }}</td>
+                                    <td class="text-end small fw-bold text-danger">{{ emp.salary|floatformat:2 }} EGP</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot class="bg-light">
+                                <tr>
+                                    <td colspan="2" class="py-2 fw-bold small">Total Monthly</td>
+                                    <td class="text-end fw-bold small text-danger">{{ monthly_payroll|floatformat:2 }} EGP</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-secondary small mb-0">No active employees recorded.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Item Performance ───────────────────────────────────────────────── -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-7">
+            <div class="card section-card h-100">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">Menu Item Performance</h5>
+                    {% if all_items %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="bg-light">
+                                <tr class="text-secondary small text-uppercase">
+                                    <th class="border-0 py-2">Item</th>
+                                    <th class="border-0 py-2 text-center">Qty</th>
+                                    <th class="border-0 py-2 text-end">Revenue</th>
+                                    <th class="border-0 py-2 text-end">COGS</th>
+                                    <th class="border-0 py-2 text-end">Profit</th>
+                                    <th class="border-0 py-2 text-center">Margin</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in all_items %}
+                                <tr>
+                                    <td class="py-2 fw-bold small">{{ item.name }}</td>
+                                    <td class="text-center small">{{ item.qty }}</td>
+                                    <td class="text-end small text-vibrant fw-bold">{{ item.revenue|floatformat:2 }}</td>
+                                    <td class="text-end small text-danger">{{ item.cost|floatformat:2 }}</td>
+                                    <td class="text-end small fw-bold {% if item.profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                        {{ item.profit|floatformat:2 }}
+                                    </td>
+                                    <td class="text-center">
+                                        {% if item.margin >= 50 %}
+                                        <span class="badge bg-success bg-opacity-10 text-success badge-margin">{{ item.margin|floatformat:1 }}%</span>
+                                        {% elif item.margin >= 25 %}
+                                        <span class="badge bg-warning bg-opacity-10 text-warning badge-margin">{{ item.margin|floatformat:1 }}%</span>
+                                        {% else %}
+                                        <span class="badge bg-danger bg-opacity-10 text-danger badge-margin">{{ item.margin|floatformat:1 }}%</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-secondary mb-0">No sales data for this period.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <!-- Item profit chart -->
+            <div class="card section-card mb-4">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">Profit by Item</h5>
+                    <div class="chart-wrap" style="height:180px;">
+                        <canvas id="itemChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <!-- Bottom 3 margin items -->
+            {% if bottom_items %}
+            <div class="card section-card">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">⚠️ Lowest Margin Items</h5>
+                    {% for item in bottom_items %}
+                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                        <span class="small fw-bold">{{ item.name }}</span>
+                        <span class="badge bg-danger bg-opacity-10 text-danger badge-margin">{{ item.margin|floatformat:1 }}%</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ── Order Log ──────────────────────────────────────────────────────── -->
+    <div class="card section-card">
+        <div class="card-body p-4">
+            <h5 class="fw-bold mb-3">Order Log</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light">
+                        <tr class="text-secondary small text-uppercase">
+                            <th class="border-0 py-2">Order #</th>
+                            <th class="border-0 py-2">Date & Time</th>
+                            <th class="border-0 py-2">Table</th>
+                            <th class="border-0 py-2">Items</th>
+                            <th class="border-0 py-2 text-center">Promo</th>
+                            <th class="border-0 py-2 text-end">Total</th>
+                            <th class="border-0 py-2"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in orders %}
+                        <tr>
+                            <td class="fw-bold text-vibrant small">{{ order.order_number }}</td>
+                            <td>
+                                <div class="small fw-bold">{{ order.created_at|date:"H:i" }}</div>
+                                <div class="small text-secondary">{{ order.created_at|date:"d M Y" }}</div>
+                            </td>
+                            <td class="small text-secondary">{{ order.table_number|default:"—" }}</td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-1">
+                                    {% for item in order.items.all %}
+                                    <span class="item-badge">
+                                        {{ item.quantity }}× {% if item.menu_item %}{{ item.menu_item.name }}{% else %}[deleted]{% endif %}
+                                    </span>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td class="text-center">
+                                {% if order.promo_code %}
+                                <span class="badge bg-success bg-opacity-10 text-success font-monospace small">{{ order.promo_code.code }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-end fw-bold small">{{ order.total_price|floatformat:2 }} EGP</td>
+                            <td class="text-end">
+                                <div class="d-flex gap-1 justify-content-end">
+                                    <a href="{% url 'receipt' order.order_number %}" class="btn btn-sm btn-outline-secondary rounded-pill" target="_blank" title="Receipt">
+                                        <i class="bi bi-printer"></i>
+                                    </a>
+                                    <a href="{% url 'edit_order' order.id %}" class="btn btn-sm btn-outline-primary rounded-pill" title="Edit Order">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <a href="{% url 'log_damage' order.id %}" class="btn btn-sm btn-outline-danger rounded-pill" title="Log Damage" style="color:#FF4500;border-color:#FF4500;">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-secondary">
+                                <i class="bi bi-inbox display-1 text-light d-block mb-2"></i>
+                                No orders found for this period.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const ORANGE = '#FF4500';
+const GREEN  = '#16a34a';
+const RED    = '#dc2626';
+const GREY   = '#6b7280';
+
+// ── Revenue / Cost / Profit chart ─────────────────────────────────────────
+const labels   = {{ chart_labels|safe }};
+const revenues = {{ chart_revenue|safe }};
+const costs    = {{ chart_cost|safe }};
+const profits  = {{ chart_profit|safe }};
+
+if (labels.length > 0) {
+    new Chart(document.getElementById('revenueChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                { label: 'Revenue',  data: revenues, backgroundColor: 'rgba(255,69,0,0.7)',  borderRadius: 4 },
+                { label: 'COGS',     data: costs,    backgroundColor: 'rgba(220,38,38,0.5)', borderRadius: 4 },
+                { label: 'Profit',   data: profits,  backgroundColor: 'rgba(22,163,74,0.7)', borderRadius: 4, type: 'line',
+                  borderColor: GREEN, tension: 0.3, fill: false, pointRadius: 3 },
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+            scales: {
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
+                y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } }
+            }
+        }
+    });
+} else {
+    document.getElementById('revenueChart').parentElement.innerHTML =
+        '<p class="text-secondary text-center py-4">No data for this period.</p>';
+}
+
+// ── Profit by item chart ──────────────────────────────────────────────────
+const itemNames   = [{% for i in all_items %}"{{ i.name|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %}];
+const itemProfits = [{% for i in all_items %}{{ i.profit|floatformat:2 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+
+if (itemNames.length > 0) {
+    new Chart(document.getElementById('itemChart'), {
+        type: 'bar',
+        data: {
+            labels: itemNames,
+            datasets: [{
+                label: 'Profit (EGP)',
+                data: itemProfits,
+                backgroundColor: itemProfits.map(v => v >= 0 ? 'rgba(22,163,74,0.7)' : 'rgba(220,38,38,0.7)'),
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } },
+                y: { grid: { display: false }, ticks: { font: { size: 10 } } }
+            }
+        }
+    });
+} else {
+    document.getElementById('itemChart').parentElement.innerHTML =
+        '<p class="text-secondary text-center py-4">No data.</p>';
+}
+</script>
+{% endblock %}

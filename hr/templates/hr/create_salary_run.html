@@ -1,0 +1,64 @@
+{% extends "erp_base.html" %}
+{% block title %}New Salary Run{% endblock %}
+{% block page_title %}New Salary Run{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">New Salary Run</h1>
+        <p class="erp-page-sub">Auto-generates salary lines for all active employees based on attendance</p>
+    </div>
+    <a href="{% url 'hr:salary_runs' %}" class="btn btn-light btn-erp">
+        <i class="bi bi-arrow-left me-1"></i> Back to Payroll
+    </a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="erp-card p-4">
+            <div class="erp-card-header mb-4 px-0 pt-0">
+                <i class="bi bi-cash-stack me-1"></i> Salary Run Details
+            </div>
+
+            {% if messages %}
+            {% for msg in messages %}
+            <div class="alert alert-{{ msg.tags }} rounded-3 mb-3">{{ msg }}</div>
+            {% endfor %}
+            {% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="erp-form-label">Period Start <span class="text-danger">*</span></label>
+                        <input type="date" name="period_start" class="erp-input" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="erp-form-label">Period End <span class="text-danger">*</span></label>
+                        <input type="date" name="period_end" class="erp-input" required>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="erp-form-label">Notes</label>
+                    <textarea name="notes" class="erp-input" rows="3" placeholder="e.g. March 2026 payroll..."></textarea>
+                </div>
+
+                <div class="p-3 rounded-3 mb-4" style="background:#f0fdf4;border:1px solid #bbf7d0;">
+                    <small class="text-success">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Salary lines will be auto-generated for all <strong>active employees</strong> based on
+                        their attendance records in the selected period. Prorated salaries and approved advances
+                        will be applied automatically.
+                    </small>
+                </div>
+
+                <div class="d-flex gap-2 justify-content-end">
+                    <a href="{% url 'hr:salary_runs' %}" class="btn btn-light rounded-pill px-4">Cancel</a>
+                    <button type="submit" class="btn btn-primary-erp btn-erp px-4">
+                        <i class="bi bi-check2-circle me-1"></i> Create Salary Run
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

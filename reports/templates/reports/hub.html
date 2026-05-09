@@ -1,0 +1,189 @@
+{% extends "erp_base.html" %}
+{% block title %}Reports Hub{% endblock %}
+{% block page_title %}Reports{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Reports & Exports</h1>
+        <p class="erp-page-sub">Download data as PDF or Excel across every module</p>
+    </div>
+</div>
+
+<style>
+.report-card { background:#fff; border-radius:14px; padding:1.5rem; box-shadow:0 1px 6px rgba(0,0,0,.07); border:1px solid #f0f0f0; height:100%; }
+.report-card-title { font-weight:700; font-size:1rem; margin-bottom:.25rem; }
+.report-card-sub   { font-size:.8rem; color:#6b7280; margin-bottom:1rem; }
+.report-btn-group  { display:flex; gap:.5rem; flex-wrap:wrap; }
+.report-section-label { font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#9ca3af; margin-bottom:.75rem; margin-top:1.5rem; }
+.btn-pdf   { background:#fee2e2; color:#dc2626; border:none; border-radius:8px; padding:.35rem .8rem; font-size:.8rem; font-weight:600; text-decoration:none; }
+.btn-pdf:hover   { background:#fca5a5; color:#dc2626; }
+.btn-excel { background:#dcfce7; color:#16a34a; border:none; border-radius:8px; padding:.35rem .8rem; font-size:.8rem; font-weight:600; text-decoration:none; }
+.btn-excel:hover { background:#86efac; color:#16a34a; }
+.btn-view  { background:#eff6ff; color:#2563eb; border:none; border-radius:8px; padding:.35rem .8rem; font-size:.8rem; font-weight:600; text-decoration:none; }
+.btn-view:hover  { background:#bfdbfe; color:#2563eb; }
+.date-filter-bar { background:#fff; border-radius:12px; padding:1rem 1.25rem; box-shadow:0 1px 4px rgba(0,0,0,.06); border:1px solid #f0f0f0; margin-bottom:1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+</style>
+
+<!-- Date filter bar (affects all downloads on this page) -->
+<div class="date-filter-bar">
+    <span style="font-size:.85rem;font-weight:600;color:#374151;">Filter by Date:</span>
+    <div class="d-flex align-items-center gap-2">
+        <label style="font-size:.8rem;color:#6b7280;">From</label>
+        <input type="date" id="df" class="erp-input" style="width:150px;padding:.3rem .6rem;font-size:.85rem;">
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <label style="font-size:.8rem;color:#6b7280;">To</label>
+        <input type="date" id="dt" class="erp-input" style="width:150px;padding:.3rem .6rem;font-size:.85rem;">
+    </div>
+    <button onclick="clearDates()" class="btn btn-sm btn-outline-secondary rounded-3" style="font-size:.8rem;">Clear</button>
+    <span class="ms-auto text-muted" style="font-size:.78rem;">Date range is applied to all downloads</span>
+</div>
+
+<!-- ── Finance ─────────────────────────────────────────────────────────── -->
+<div class="report-section-label"><i class="bi bi-graph-up-arrow me-1"></i>Finance</div>
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">General Financial Report</div>
+            <div class="report-card-sub">Total revenue, COGS, gross margin, net profit, payroll, expenses — full P&L with per-item breakdown</div>
+            <div class="report-btn-group">
+                <a href="{% url 'reports:finance_general' %}" class="btn-view"><i class="bi bi-eye me-1"></i>View</a>
+                <a href="#" onclick="dl('{% url "reports:finance_general_pdf" %}')" class="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+                <a href="#" onclick="dl('{% url "reports:finance_general_excel" %}')" class="btn-excel"><i class="bi bi-file-earmark-excel me-1"></i>Excel</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">Custom / Filtered Report</div>
+            <div class="report-card-sub">Group sales data by item, category, day, week or month — apply item/category filters</div>
+            <div class="report-btn-group">
+                <a href="{% url 'reports:finance_custom' %}" class="btn-view"><i class="bi bi-sliders me-1"></i>Build Report</a>
+                <a href="#" onclick="dl('{% url "reports:finance_custom_pdf" %}', true)" class="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+                <a href="#" onclick="dl('{% url "reports:finance_custom_excel" %}', true)" class="btn-excel"><i class="bi bi-file-earmark-excel me-1"></i>Excel</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Purchasing ──────────────────────────────────────────────────────── -->
+<div class="report-section-label"><i class="bi bi-truck me-1"></i>Purchasing</div>
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">Purchase Orders</div>
+            <div class="report-card-sub">All POs with line items, quantities ordered/received, unit costs — plus supplier invoices sheet in Excel</div>
+            <div class="report-btn-group">
+                <a href="#" onclick="dl('{% url "reports:purchasing_pdf" %}')" class="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+                <a href="#" onclick="dl('{% url "reports:purchasing_excel" %}')" class="btn-excel"><i class="bi bi-file-earmark-excel me-1"></i>Excel (+ Invoices)</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── HR ─────────────────────────────────────────────────────────────── -->
+<div class="report-section-label"><i class="bi bi-people me-1"></i>Human Resources</div>
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">Attendance Records</div>
+            <div class="report-card-sub">Per-employee daily attendance — status, check-in/out times, notes</div>
+            <div class="report-btn-group">
+                <a href="#" onclick="dl('{% url "reports:hr_attendance_pdf" %}')" class="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+                <a href="#" onclick="dl('{% url "reports:hr_attendance_excel" %}')" class="btn-excel"><i class="bi bi-file-earmark-excel me-1"></i>Excel</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">Payroll / Salary Runs</div>
+            <div class="report-card-sub">All salary runs with per-employee breakdowns — gross, deductions, advances, net pay</div>
+            <div class="report-btn-group">
+                <a href="#" onclick="dl('{% url "reports:hr_payroll_pdf" %}')" class="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+                <a href="#" onclick="dl('{% url "reports:hr_payroll_excel" %}')" class="btn-excel"><i class="bi bi-file-earmark-excel me-1"></i>Excel (per run)</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Inventory ───────────────────────────────────────────────────────── -->
+<div class="report-section-label"><i class="bi bi-box-seam me-1"></i>Inventory</div>
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">Inventory Report</div>
+            <div class="report-card-sub">Current stock levels + stock value, movement log, and cost history. Excel has 3 sheets.</div>
+            <div class="report-btn-group">
+                <a href="#" onclick="dl('{% url "reports:inventory_pdf" %}')" class="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+                <a href="#" onclick="dl('{% url "reports:inventory_excel" %}')" class="btn-excel"><i class="bi bi-file-earmark-excel me-1"></i>Excel (3 sheets)</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">Ingredient Detail Report</div>
+            <div class="report-card-sub">Per-ingredient deep dive: every restock with supplier, quantity, cost &amp; date — plus full damage/wastage log. Select all or specific ingredients.</div>
+            <div class="report-btn-group">
+                <a href="{% url 'reports:ingredient_detail' %}" class="btn-excel" style="background:#6d28d9;">
+                    <i class="bi bi-funnel me-1"></i> Open &amp; Export
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Admin / Activity ────────────────────────────────────────────────── -->
+<div class="report-section-label"><i class="bi bi-shield-check me-1"></i>Admin</div>
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">Activity Log</div>
+            <div class="report-card-sub">Full audit trail — who did what and when. PDF capped at 500 rows; Excel has all records.</div>
+            <div class="report-btn-group">
+                <a href="#" onclick="dl('{% url "reports:activity_pdf" %}')" class="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF (≤500)</a>
+                <a href="#" onclick="dl('{% url "reports:activity_excel" %}')" class="btn-excel"><i class="bi bi-file-earmark-excel me-1"></i>Excel (all)</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="report-card">
+            <div class="report-card-title">Full Data Backup</div>
+            <div class="report-card-sub">Every table in one Excel file — orders, items, ingredients, employees, expenses, stock log, cost history, activity log.</div>
+            <div class="report-btn-group">
+                <a href="{% url 'export_full_backup' %}" class="btn-excel"><i class="bi bi-database-down me-1"></i>Download Backup (.xlsx)</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+{% block extra_js %}
+<script>
+function getParams(addCustom) {
+    const df = document.getElementById('df').value;
+    const dt = document.getElementById('dt').value;
+    const p  = new URLSearchParams();
+    if (df) p.set('date_from', df);
+    if (dt) p.set('date_to',   dt);
+    return p.toString() ? '?' + p.toString() : '';
+}
+function dl(url, isCustom) {
+    const params = getParams(isCustom);
+    if (isCustom) {
+        // Send to custom report builder page first
+        window.location.href = "{% url 'reports:finance_custom' %}" + (params || '');
+    } else {
+        window.location.href = url + params;
+    }
+}
+function clearDates() {
+    document.getElementById('df').value = '';
+    document.getElementById('dt').value = '';
+}
+// Make PDF/Excel buttons on hub also pass date params
+document.querySelectorAll('a[onclick^="dl("]').forEach(a => {
+    const orig = a.getAttribute('onclick');
+    // already handled via dl() function
+});
+</script>
+{% endblock %}

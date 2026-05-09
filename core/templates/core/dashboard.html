@@ -1,0 +1,711 @@
+{% extends 'erp_base.html' %}
+{% block page_title %}Dashboard{% endblock %}
+{% block title %}Dashboard | Searing Sandwiches{% endblock %}
+
+{% block extra_css %}
+<style>
+.kpi-card { border-radius:16px; padding:1.4rem 1.6rem; border:0; }
+.kpi-label { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; opacity:.7; margin-bottom:.3rem; }
+.kpi-value { font-size:1.9rem; font-weight:800; line-height:1; }
+.kpi-sub   { font-size:.78rem; margin-top:.35rem; opacity:.7; }
+.section-card { border:0; border-radius:16px; box-shadow:0 2px 16px rgba(0,0,0,.06); }
+.low-stock-row { display:flex; justify-content:space-between; align-items:center; padding:.6rem 0; border-bottom:1px solid #f0f0f0; }
+.low-stock-row:last-child { border-bottom:0; }
+.heatmap-bar { background:rgba(255,69,0,.15); border-radius:4px; transition:.3s; }
+.heatmap-bar.active { background:#FF4500; }
+.be-gauge { height:12px; border-radius:8px; background:#e5e7eb; overflow:hidden; }
+.be-fill { height:100%; border-radius:8px; transition:width .6s ease; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+
+    <!-- Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+        <div>
+            <h1 class="section-title mb-1">
+                {% if request.user.profile.role == "superadmin" %}Super Admin{% else %}Manager{% endif %} Dashboard
+            </h1>
+            <p class="text-secondary mb-0">Overview of your restaurant's performance and stock.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'pos' %}" class="btn btn-vibrant rounded-pill px-4"><i class="bi bi-bag-check me-1"></i> Go to POS</a>
+        </div>
+    </div>
+
+    {% if messages %}{% for m in messages %}
+    <div class="alert alert-{% if m.tags == 'error' %}danger{% else %}success{% endif %} rounded-3 alert-dismissible fade show mb-3">
+        {{ m }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>{% endfor %}{% endif %}
+
+    <!-- ── KPI Row ─────────────────────────────────────────────────────────── -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="kpi-card section-card h-100" style="background:linear-gradient(135deg,#FF4500,#FF7A45);color:white;">
+                <div class="kpi-label">Total Sales</div>
+                <div class="kpi-value">{{ total_sales|floatformat:0 }}</div>
+                <div class="kpi-sub">EGP all time</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card section-card h-100 bg-white">
+                <div class="kpi-label text-secondary">Today's Orders</div>
+                <div class="kpi-value text-dark">{{ today_orders }}</div>
+                <div class="kpi-sub text-secondary">active orders today</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card section-card h-100 bg-white">
+                <div class="kpi-label text-secondary">Avg Order Value</div>
+                <div class="kpi-value text-dark">{{ avg_order_value|floatformat:0 }}</div>
+                <div class="kpi-sub text-secondary">EGP · last 30 days</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card section-card h-100 bg-white">
+                <div class="kpi-label text-secondary">Gross Margin</div>
+                <div class="kpi-value {% if avg_gross_margin >= 40 %}text-success{% elif avg_gross_margin >= 20 %}text-warning{% else %}text-danger{% endif %}">{{ avg_gross_margin }}%</div>
+                <div class="kpi-sub text-secondary">last 30 days</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Quick Links ──────────────────────────────────────────────────── -->
+    <div class="row g-2 mb-4">
+        <div class="col-12"><div class="text-secondary small fw-bold text-uppercase mb-1" style="letter-spacing:.07em;">Quick Links</div></div>
+
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'pos' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-bag-check fs-3" style="color:#FF4500;"></i>
+                <div class="small fw-bold mt-1 text-dark">POS</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'manage_orders' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-list-ol fs-3" style="color:#0369a1;"></i>
+                <div class="small fw-bold mt-1 text-dark">Manage Orders</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'manage_ingredients_page' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-box-seam fs-3" style="color:#15803d;"></i>
+                <div class="small fw-bold mt-1 text-dark">Inventory</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'damaged_stock' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-exclamation-triangle fs-3" style="color:#dc2626;"></i>
+                <div class="small fw-bold mt-1 text-dark">Damaged Inventory</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'shift_report' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-calendar-check fs-3" style="color:#7c3aed;"></i>
+                <div class="small fw-bold mt-1 text-dark">Shift Report</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'sales_report' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-graph-up-arrow fs-3" style="color:#0891b2;"></i>
+                <div class="small fw-bold mt-1 text-dark">Sales Report</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'stock_log' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-clipboard-data fs-3" style="color:#b45309;"></i>
+                <div class="small fw-bold mt-1 text-dark">Stock Log</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'purchasing:purchase_orders' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-truck fs-3" style="color:#475569;"></i>
+                <div class="small fw-bold mt-1 text-dark">Purchase Orders</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'reports:hub' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-download fs-3" style="color:#6d28d9;"></i>
+                <div class="small fw-bold mt-1 text-dark">Export Reports</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'accounting:profit_loss' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-bar-chart-line fs-3" style="color:#0f766e;"></i>
+                <div class="small fw-bold mt-1 text-dark">P&L Report</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'hr:employees' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-people fs-3" style="color:#9333ea;"></i>
+                <div class="small fw-bold mt-1 text-dark">Employees</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <a href="{% url 'manage_expenses' %}" class="card border-0 shadow-sm rounded-3 p-3 text-decoration-none text-center d-block h-100" style="transition:.15s;" onmouseover="this.style.boxShadow='0 4px 18px rgba(255,69,0,.18)'" onmouseout="this.style.boxShadow=''">
+                <i class="bi bi-receipt-cutoff fs-3" style="color:#be185d;"></i>
+                <div class="small fw-bold mt-1 text-dark">Expenses</div>
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+
+        <!-- ── Break-even calculator ──────────────────────────────────────── -->
+        <div class="col-lg-4">
+            <div class="card section-card h-100">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-1">⚖️ Break-Even Today</h5>
+                    <p class="text-secondary small mb-3">Based on this month's fixed costs vs your avg contribution per order.</p>
+
+                    {% if breakeven_orders > 0 %}
+                    {% widthratio today_orders breakeven_orders 100 as pct %}
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="small fw-bold">{{ today_orders }} / {{ breakeven_orders }} orders</span>
+                        <span class="small text-secondary">{{ pct }}%</span>
+                    </div>
+                    <div class="be-gauge mb-3">
+                        <div class="be-fill {% if today_orders >= breakeven_orders %}bg-success{% elif pct|add:'0' >= 60 %}bg-warning{% else %}bg-danger{% endif %}"
+                             style="width:{% if today_orders >= breakeven_orders %}100{% else %}{{ pct }}{% endif %}%;"></div>
+                    </div>
+                    {% if today_orders >= breakeven_orders %}
+                    <div class="alert alert-success rounded-3 small py-2 mb-0">
+                        <i class="bi bi-check-circle me-1"></i> You've covered today's fixed costs!
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning rounded-3 small py-2 mb-0">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        Need <strong>{{ breakeven_orders|add:"-"|add:today_orders }}</strong> more orders to break even today.
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <p class="text-secondary small">Add employees/expenses and process orders to see break-even data.</p>
+                    {% endif %}
+
+                    <hr class="my-3">
+                    <div class="d-flex justify-content-between small text-secondary">
+                        <span>Daily fixed costs</span><span class="fw-bold text-dark">{{ daily_fixed }} EGP</span>
+                    </div>
+                    <div class="d-flex justify-content-between small text-secondary mt-1">
+                        <span>Monthly payroll</span><span>{{ monthly_payroll|floatformat:0 }} EGP</span>
+                    </div>
+                    <div class="d-flex justify-content-between small text-secondary mt-1">
+                        <span>Month expenses</span><span>{{ monthly_expenses|floatformat:0 }} EGP</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Hourly heatmap ─────────────────────────────────────────────── -->
+        <div class="col-lg-4">
+            <div class="card section-card h-100">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-1">🕐 Busiest Hours</h5>
+                    <p class="text-secondary small mb-3">Order volume by hour — last 30 days.</p>
+                    <div style="height:180px;"><canvas id="heatmapChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Low stock alerts ───────────────────────────────────────────── -->
+        <div class="col-lg-4">
+            <div class="card section-card h-100">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold mb-0">
+                            ⚠️ Low Stock
+                            {% if low_stock %}<span class="badge bg-danger rounded-pill ms-1">{{ low_stock|length }}</span>{% endif %}
+                        </h5>
+                        <a href="{% url 'manage_ingredients_page' %}" class="btn btn-sm btn-outline-dark rounded-pill">Manage</a>
+                    </div>
+                    {% if low_stock %}
+                    {% for ing in low_stock %}
+                    <div class="low-stock-row">
+                        <div>
+                            <div class="small fw-bold">{{ ing.name }}</div>
+                            <div class="small text-danger">
+                                {% if ing.unit == 'boxes' %}
+                                    {{ ing.stock_quantity|floatformat:0 }} {{ ing.sub_unit }}
+                                {% else %}
+                                    {{ ing.stock_quantity|floatformat:2 }} {{ ing.unit }}
+                                {% endif %}
+                                <span class="text-secondary">/ threshold {{ ing.low_stock_threshold|floatformat:0 }}</span>
+                            </div>
+                        </div>
+                        <a href="{% url 'purchasing:create_po' %}" class="btn btn-sm btn-outline-primary rounded-pill">
+                            <i class="bi bi-file-earmark-plus me-1"></i> Create PO
+                        </a>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="text-center py-4 text-secondary">
+                        <i class="bi bi-check-circle display-4 text-success d-block mb-2"></i>
+                        All ingredients are well stocked!
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Stock levels grid ──────────────────────────────────────────────── -->
+    <div class="card section-card mb-4">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h5 class="fw-bold mb-0">Ingredient Stock Levels</h5>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'stock_log' %}" class="btn btn-sm btn-outline-dark rounded-pill"><i class="bi bi-journal-text me-1"></i> Stock Log</a>
+                    <a href="{% url 'cost_history' %}" class="btn btn-sm btn-outline-dark rounded-pill"><i class="bi bi-graph-up me-1"></i> Cost History</a>
+                    <button type="button" class="btn btn-sm btn-outline-warning rounded-pill"
+                        data-bs-toggle="modal" data-bs-target="#adjustStockModal">
+                        <i class="bi bi-pencil-square me-1"></i> Adjust Stock
+                    </button>
+                    <span class="small text-secondary align-self-center"><i class="bi bi-info-circle me-1"></i> Updated in real-time</span>
+                </div>
+            </div>
+            <div class="row g-3">
+                {% for ingredient in ingredients %}
+                <div class="col-md-4 col-lg-3">
+                    <div class="p-3 rounded-4 border {% if ingredient.stock_quantity <= ingredient.low_stock_threshold %}bg-danger bg-opacity-10 border-danger border-opacity-25{% else %}bg-light border-light{% endif %} h-100 d-flex flex-column">
+                        <div class="small text-secondary text-uppercase fw-bold mb-1" style="font-size:.7rem;">{{ ingredient.name }}</div>
+                        <div class="h4 mb-0 fw-bold {% if ingredient.stock_quantity <= ingredient.low_stock_threshold %}text-danger{% endif %}">
+                            {% if ingredient.unit == 'boxes' %}
+                                {{ ingredient.stock_quantity|floatformat:0 }}
+                                <small class="fs-6 fw-normal text-secondary">{{ ingredient.sub_unit }}</small>
+                            {% else %}
+                                {{ ingredient.stock_quantity|floatformat:2 }}
+                                <small class="fs-6 fw-normal text-secondary">{{ ingredient.unit }}</small>
+                            {% endif %}
+                        </div>
+                        {% if ingredient.cost_per_unit %}
+                        <div class="small text-secondary mt-1">{{ ingredient.cost_per_unit|floatformat:4 }} EGP/unit</div>
+                        {% endif %}
+                        <!-- Per-card action buttons -->
+                        <div class="d-flex gap-1 mt-2 pt-2" style="border-top:1px solid rgba(0,0,0,.06);">
+                            <button class="btn btn-sm flex-fill rounded-3 fw-semibold"
+                                style="font-size:.7rem;padding:.22rem .3rem;background:#fff0eb;color:#FF4500;border:1px solid #ffd5c0;"
+                                onclick="openAdjModal('{{ ingredient.id }}', '{{ ingredient.name|escapejs }}', '{{ ingredient.stock_quantity|stringformat:".3f" }}', '{{ ingredient.unit }}')"
+                                title="Adjust stock for {{ ingredient.name }}">
+                                <i class="bi bi-pencil-square me-1"></i>Adjust
+                            </button>
+                            <button class="btn btn-sm flex-fill rounded-3 fw-semibold"
+                                style="font-size:.7rem;padding:.22rem .3rem;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;"
+                                onclick="openZeroModal('{{ ingredient.id }}', '{{ ingredient.name|escapejs }}', '{{ ingredient.stock_quantity|stringformat:".3f" }}', '{{ ingredient.unit }}')"
+                                title="Set stock to zero for {{ ingredient.name }}">
+                                <i class="bi bi-trash me-1"></i>Zero Out
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Recent Orders ──────────────────────────────────────────────────── -->
+    <div id="orders" class="card section-card">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h4 class="fw-bold mb-0">Recent Orders</h4>
+                <a href="{% url 'sales_report' %}" class="btn btn-sm btn-light rounded-pill px-3">View All</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="bg-light">
+                        <tr class="text-secondary small text-uppercase">
+                            <th class="py-3 border-0">Order #</th>
+                            <th class="py-3 border-0">Time</th>
+                            <th class="py-3 border-0">Table</th>
+                            <th class="py-3 border-0">Items</th>
+                            <th class="py-3 border-0 text-end">Total</th>
+                            <th class="py-3 border-0"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in orders %}
+                        <tr>
+                            <td class="fw-bold py-3 text-vibrant">{{ order.order_number }}</td>
+                            <td>
+                                <div class="fw-bold text-dark">{{ order.created_at|date:"H:i" }}</div>
+                                <div class="small text-secondary">{{ order.created_at|date:"d M, Y" }}</div>
+                            </td>
+                            <td class="small text-secondary">{{ order.table_number|default:"—" }}</td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-1">
+                                    {% for item in order.items.all %}
+                                    <span class="badge rounded-pill fw-normal" style="background:#fff0eb;color:#FF4500;border:1px solid rgba(255,69,0,.2);">
+                                        {{ item.quantity }}× {% if item.menu_item %}{{ item.menu_item.name }}{% else %}[deleted]{% endif %}
+                                    </span>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td class="text-end fw-bold">{{ order.total_price|floatformat:2 }} EGP</td>
+                            <td class="text-end">
+                                <div class="d-flex gap-1 justify-content-end flex-wrap">
+                                    <a href="{% url 'receipt' order.order_number %}" class="btn btn-sm btn-outline-dark rounded-pill" target="_blank">
+                                        <i class="bi bi-printer"></i>
+                                    </a>
+                                    {% if user.profile.role in "manager superadmin" %}
+                                    <a href="{% url 'edit_order' order.id %}" class="btn btn-sm btn-outline-primary rounded-pill" title="Edit Order">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <a href="{% url 'log_damage' order.id %}" class="btn btn-sm rounded-pill" style="background:#fff0eb;color:#FF4500;border:1px solid #FF4500;" title="Log Damage">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                    </a>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-outline-warning rounded-pill"
+                                        data-bs-toggle="modal" data-bs-target="#voidOrderModal"
+                                        data-id="{{ order.id }}" data-num="{{ order.order_number }}">
+                                        <i class="bi bi-slash-circle"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger rounded-pill"
+                                        data-bs-toggle="modal" data-bs-target="#deleteOrderModal"
+                                        data-id="{{ order.id }}" data-num="{{ order.order_number }}"
+                                        data-url="{% url 'delete_order' order.id %}">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6" class="text-center py-5">
+                            <i class="bi bi-inbox display-1 text-light"></i>
+                            <p class="text-secondary mt-3">No orders yet.</p>
+                            <a href="{% url 'pos' %}" class="btn btn-vibrant mt-2">Open POS</a>
+                        </td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Void Order Modal -->
+<div class="modal fade" id="voidOrderModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-warning">Void Order</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="void-form" method="post" action="#">
+                {% csrf_token %}
+                <div class="modal-body p-4">
+                    <p>Void order <strong id="void-order-num"></strong>?</p>
+                    <div class="alert alert-info rounded-3 small">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Stock will be <strong>restored</strong> automatically. The order will be marked as voided but kept in history.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">
+                            Reason <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" name="void_reason" class="form-control rounded-3"
+                               placeholder="e.g. Customer cancelled, wrong order..." required
+                               oninvalid="this.setCustomValidity('Please enter a reason for voiding this order.')"
+                               oninput="this.setCustomValidity('')">
+                        <div class="form-text text-danger" style="font-size:.75rem;">Required — this is logged in the audit trail.</div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0 p-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning rounded-pill px-4"><i class="bi bi-slash-circle me-1"></i> Void Order</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Order Modal -->
+<div class="modal fade" id="deleteOrderModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-danger">Delete Order</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="text-secondary">Permanently delete order <strong id="delete-order-num"></strong>?</p>
+                <div class="alert alert-warning rounded-3 small"><i class="bi bi-exclamation-triangle me-1"></i> Stock will <strong>not</strong> be restored. Use Void instead if you want stock back.</div>
+            </div>
+            <div class="modal-footer border-0 pt-0 p-4">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                <form id="delete-order-form" method="post" action="#" style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger rounded-pill px-4">
+                        <i class="bi bi-trash me-1"></i> Delete
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ── Zero Out Stock Confirmation Modal ─────────────────────────────────── -->
+<div class="modal fade" id="zeroStockModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Zero Out Stock</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{% url 'manual_stock_adjust' %}" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="ingredient_id" id="zero-ing-id">
+                <input type="hidden" name="action_type" value="set">
+                <input type="hidden" name="quantity" value="0">
+                <input type="hidden" name="note" value="Manual zero-out from dashboard">
+                <div class="modal-body p-4">
+                    <p class="mb-2">Set stock of <strong id="zero-ing-name"></strong> to <strong>0</strong>?</p>
+                    <p class="text-secondary small mb-0">Current stock: <span id="zero-ing-stock" class="fw-semibold text-danger"></span></p>
+                </div>
+                <div class="modal-footer border-0 pt-0 p-4 gap-2">
+                    <button type="button" class="btn btn-light rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger rounded-pill px-3 fw-bold">
+                        <i class="bi bi-trash me-1"></i>Zero Out
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ── Adjust Stock Modal ─────────────────────────────────────────────────── -->
+<div class="modal fade" id="adjustStockModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2 text-warning"></i>Manual Stock Adjustment</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{% url 'manual_stock_adjust' %}" method="post">
+                {% csrf_token %}
+                <div class="modal-body p-4">
+                    <!-- Ingredient selector -->
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Ingredient</label>
+                        <select name="ingredient_id" id="adj-ingredient" class="form-select rounded-3" required onchange="onAdjIngChange(this)">
+                            <option value="">Select ingredient...</option>
+                            {% for ing in ingredients %}
+                            <option value="{{ ing.id }}"
+                                data-stock="{{ ing.stock_quantity }}"
+                                data-unit="{{ ing.unit }}">
+                                {{ ing.name }} — {{ ing.stock_quantity|floatformat:3 }} {{ ing.unit }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Current stock display -->
+                    <div id="adj-current-stock" class="mb-3 p-3 rounded-3 d-none" style="background:#f8f9fa;">
+                        <div class="small text-secondary">Current Stock</div>
+                        <div class="fw-bold fs-5" id="adj-stock-display">—</div>
+                    </div>
+
+                    <!-- Action type -->
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Action</label>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="adj-type-btn flex-fill btn btn-sm rounded-3 fw-bold active-adj"
+                                data-val="add" onclick="setAdjType(this)"
+                                style="border:2px solid #16a34a;background:#f0fdf4;color:#16a34a;">
+                                <i class="bi bi-plus-circle me-1"></i>Add
+                            </button>
+                            <button type="button" class="adj-type-btn flex-fill btn btn-sm rounded-3 fw-bold"
+                                data-val="subtract" onclick="setAdjType(this)"
+                                style="border:2px solid #ddd;background:#fff;color:#555;">
+                                <i class="bi bi-dash-circle me-1"></i>Subtract
+                            </button>
+                            <button type="button" class="adj-type-btn flex-fill btn btn-sm rounded-3 fw-bold"
+                                data-val="set" onclick="setAdjType(this)"
+                                style="border:2px solid #ddd;background:#fff;color:#555;">
+                                <i class="bi bi-arrow-repeat me-1"></i>Set To
+                            </button>
+                        </div>
+                        <input type="hidden" name="action_type" id="adj-type-hidden" value="add">
+                    </div>
+
+                    <!-- Quantity -->
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">
+                            Quantity <span class="text-secondary fw-normal" id="adj-unit-label"></span>
+                        </label>
+                        <input type="number" name="quantity" id="adj-qty"
+                            step="0.001" min="0" class="form-control rounded-3"
+                            placeholder="e.g. 1.5" required oninput="updateAdjPreview()">
+                    </div>
+
+                    <!-- Preview -->
+                    <div id="adj-preview" class="mb-3 p-3 rounded-3 d-none" style="background:#fff0eb;border:1px solid #ffd5c0;">
+                        <div class="small text-secondary">Result Preview</div>
+                        <div class="fw-bold" id="adj-preview-text" style="color:#FF4500;"></div>
+                    </div>
+
+                    <!-- Note -->
+                    <div class="mb-1">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Note / Reason <span class="text-muted fw-normal">(optional)</span></label>
+                        <input type="text" name="note" class="form-control rounded-3" placeholder="e.g. Wastage, spoilage, physical count correction...">
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0 p-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn rounded-pill px-4 fw-bold" id="adj-submit-btn"
+                        style="background:#FF4500;color:#fff;border:none;">
+                        <i class="bi bi-check-circle me-1"></i>Apply Adjustment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// Hourly heatmap
+try {
+const hours  = {{ chart_hours|safe }};
+const counts = {{ chart_counts|safe }};
+const maxCnt = Math.max(...counts, 1);
+new Chart(document.getElementById('heatmapChart'), {
+    type: 'bar',
+    data: {
+        labels: hours.map(h => h + ':00'),
+        datasets: [{
+            data: counts,
+            backgroundColor: counts.map(c => `rgba(255,69,0,${0.15 + 0.85 * c / maxCnt})`),
+            borderRadius: 4,
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 0 } },
+            y: { grid: { color: '#f5f5f5' }, ticks: { font: { size: 9 }, stepSize: 1 } }
+        }
+    }
+});
+} catch(e) { console.warn('Chart.js init failed:', e); }
+
+
+// Void modal
+// (moved to extra_js block — see bottom of template)
+// ── Per-card stock shortcuts ─────────────────────────────────────────────
+function openAdjModal(ingId, ingName, ingStock, ingUnit) {
+    // Pre-select the ingredient in the existing Adjust Stock modal
+    const modal = new bootstrap.Modal(document.getElementById('adjustStockModal'));
+    const sel   = document.getElementById('adj-ingredient');
+    // Wait for modal to be shown, then set value
+    document.getElementById('adjustStockModal').addEventListener('shown.bs.modal', function handler() {
+        sel.value = ingId;
+        onAdjIngChange(sel);
+        this.removeEventListener('shown.bs.modal', handler);
+    });
+    modal.show();
+}
+
+function openZeroModal(ingId, ingName, ingStock, ingUnit) {
+    document.getElementById('zero-ing-name').textContent = ingName;
+    document.getElementById('zero-ing-stock').textContent = ingStock + ' ' + ingUnit;
+    document.getElementById('zero-ing-id').value = ingId;
+    new bootstrap.Modal(document.getElementById('zeroStockModal')).show();
+}
+
+// Adjust Stock modal
+let adjUnit = '', adjCurrentStock = 0, adjType = 'add';
+
+function onAdjIngChange(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    adjUnit         = opt.getAttribute('data-unit') || '';
+    adjCurrentStock = parseFloat(opt.getAttribute('data-stock') || '0');
+    const stockDiv  = document.getElementById('adj-current-stock');
+    if (sel.value) {
+        stockDiv.classList.remove('d-none');
+        document.getElementById('adj-stock-display').textContent =
+            adjCurrentStock.toFixed(3) + ' ' + adjUnit;
+        document.getElementById('adj-unit-label').textContent = '(' + adjUnit + ')';
+    } else {
+        stockDiv.classList.add('d-none');
+    }
+    updateAdjPreview();
+}
+
+function setAdjType(btn) {
+    document.querySelectorAll('.adj-type-btn').forEach(b => {
+        b.style.border = '2px solid #ddd';
+        b.style.background = '#fff';
+        b.style.color = '#555';
+    });
+    const colors = { add: '#16a34a', subtract: '#dc2626', set: '#FF4500' };
+    const bgs    = { add: '#f0fdf4', subtract: '#fef2f2', set: '#fff0eb' };
+    adjType = btn.getAttribute('data-val');
+    btn.style.border     = `2px solid ${colors[adjType]}`;
+    btn.style.background = bgs[adjType];
+    btn.style.color      = colors[adjType];
+    document.getElementById('adj-type-hidden').value = adjType;
+    updateAdjPreview();
+}
+
+function updateAdjPreview() {
+    const qty = parseFloat(document.getElementById('adj-qty').value) || 0;
+    const preview = document.getElementById('adj-preview');
+    const text    = document.getElementById('adj-preview-text');
+    if (!document.getElementById('adj-ingredient').value || qty <= 0) {
+        preview.classList.add('d-none'); return;
+    }
+    let newStock;
+    if      (adjType === 'add')      newStock = adjCurrentStock + qty;
+    else if (adjType === 'subtract') newStock = Math.max(0, adjCurrentStock - qty);
+    else                             newStock = qty;
+    const diff = newStock - adjCurrentStock;
+    const sign = diff >= 0 ? '+' : '';
+    text.textContent =
+        adjCurrentStock.toFixed(3) + ' ' + adjUnit +
+        '  →  ' + newStock.toFixed(3) + ' ' + adjUnit +
+        '  (' + sign + diff.toFixed(3) + ')';
+    preview.classList.remove('d-none');
+}
+
+// Reset modal state on close
+document.getElementById('adjustStockModal').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('adj-ingredient').value = '';
+    document.getElementById('adj-qty').value = '';
+    document.getElementById('adj-current-stock').classList.add('d-none');
+    document.getElementById('adj-preview').classList.add('d-none');
+    adjUnit = ''; adjCurrentStock = 0;
+    // Reset to "Add" button
+    document.querySelectorAll('.adj-type-btn').forEach(b => {
+        b.style.border = '2px solid #ddd';
+        b.style.background = '#fff';
+        b.style.color = '#555';
+    });
+    const addBtn = document.querySelector('.adj-type-btn[data-val="add"]');
+    if (addBtn) { addBtn.style.border='2px solid #16a34a'; addBtn.style.background='#f0fdf4'; addBtn.style.color='#16a34a'; }
+    document.getElementById('adj-type-hidden').value = 'add';
+    adjType = 'add';
+});
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Void modal
+document.getElementById('voidOrderModal').addEventListener('show.bs.modal', function(e) {
+    const b = e.relatedTarget;
+    if (!b) return;
+    document.getElementById('void-order-num').textContent = '#' + b.dataset.num;
+    document.getElementById('void-form').action = '/void-order/' + b.dataset.id + '/';
+});
+
+// Delete modal
+document.getElementById('deleteOrderModal').addEventListener('show.bs.modal', function(e) {
+    const b = e.relatedTarget;
+    if (!b) return;
+    document.getElementById('delete-order-num').textContent = '#' + b.dataset.num;
+    document.getElementById('delete-order-form').action = b.dataset.url;
+});
+</script>
+{% endblock %}

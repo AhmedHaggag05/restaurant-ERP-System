@@ -1,0 +1,144 @@
+{% extends 'erp_base.html' %}
+{% block title %}Edit Order {{ order.order_number }}{% endblock %}
+{% block page_title %}Edit Order{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Edit Order <span style="color:#FF4500;">{{ order.order_number }}</span></h1>
+        <p class="erp-page-sub">
+            Original time: {{ order.created_at|date:"d M Y, H:i" }} &bull;
+            All edits are saved to the audit log &bull;
+            <span class="text-warning fw-bold"><i class="bi bi-clock me-1"></i>Order timestamp is preserved</span>
+        </p>
+    </div>
+    <a href="{% url 'dashboard' %}" class="btn btn-light btn-erp">
+        <i class="bi bi-arrow-left me-1"></i> Cancel
+    </a>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-4">
+        <div class="erp-card p-4">
+            <div class="erp-card-header mb-3 px-0 pt-0"><i class="bi bi-info-circle me-1"></i> Order Info</div>
+            <table class="w-100" style="font-size:.85rem;">
+                <tr><td class="text-muted pb-2">Order #</td><td class="fw-bold text-end text-vibrant">{{ order.order_number }}</td></tr>
+                <tr><td class="text-muted pb-2">Date/Time</td><td class="text-end">{{ order.created_at|date:"d M Y H:i" }}</td></tr>
+                <tr><td class="text-muted pb-2">Current Total</td><td class="fw-bold text-end" style="color:#FF4500;">{{ order.total_price|floatformat:2 }} EGP</td></tr>
+                {% if order.discount_amount > 0 %}
+                <tr><td class="text-muted pb-2">Discount</td><td class="text-end text-danger">-{{ order.discount_amount|floatformat:2 }} EGP</td></tr>
+                {% endif %}
+            </table>
+
+            <div class="p-3 mt-3 rounded-3" style="background:#fff9db;border:1px solid #fde68a;">
+                <small class="text-warning-emphasis fw-semibold"><i class="bi bi-exclamation-triangle me-1"></i>Manager Edit</small>
+                <div class="small text-muted mt-1">
+                    Stock levels will be automatically adjusted when you change quantities.
+                    This action is fully logged.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="erp-card p-4">
+            <div class="erp-card-header mb-4 px-0 pt-0"><i class="bi bi-pencil-square me-1"></i> Edit Items & Details</div>
+
+            <form method="post">
+                {% csrf_token %}
+
+                <!-- Table & Notes -->
+                <div class="row g-3 mb-4 pb-3" style="border-bottom:1px solid #f0f0f0;">
+                    <div class="col-md-4">
+                        <label class="erp-form-label">Table Number</label>
+                        <input type="text" name="table_number" value="{{ order.table_number }}" class="erp-input" placeholder="—">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="erp-form-label">Customer Notes</label>
+                        <input type="text" name="customer_notes" value="{{ order.customer_notes }}" class="erp-input" placeholder="—">
+                    </div>
+                </div>
+
+                <!-- Line items -->
+                <div class="mb-4">
+                    <div class="text-muted small fw-bold text-uppercase mb-2">Order Items</div>
+                    <div class="p-2 rounded-3 mb-3" style="background:#f8f9fa;font-size:.78rem;color:#666;">
+                        Set qty to <strong>0</strong> to remove an item entirely. Stock will be restored automatically.
+                    </div>
+
+                    <table class="erp-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th class="text-center">Original Qty</th>
+                                <th class="text-center">New Qty</th>
+                                <th class="text-end">Unit Price</th>
+                                <th class="text-end">Line Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for oi in items %}
+                        <tr>
+                            <td>
+                                <strong>{% if oi.menu_item %}{{ oi.menu_item.name }}{% else %}<span class="text-muted">[deleted item]</span>{% endif %}</strong>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge rounded-pill" style="background:#f0f0f0;color:#555;">×{{ oi.quantity }}</span>
+                            </td>
+                            <td class="text-center" style="width:120px;">
+                                <input type="number" name="qty_{{ oi.id }}"
+                                    value="{{ oi.quantity }}" min="0" max="99"
+                                    class="erp-input text-center qty-input"
+                                    style="width:90px;"
+                                    data-price="{{ oi.price_at_order }}"
+                                    oninput="recalc()">
+                            </td>
+                            <td class="text-end text-muted small">{{ oi.price_at_order|floatformat:2 }} EGP</td>
+                            <td class="text-end fw-bold line-total">{{ oi.price_at_order|floatformat:2 }} EGP</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="text-center text-muted py-3">No items in this order.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr style="background:#fff5f2;">
+                                <td colspan="4" class="text-end fw-bold">New Subtotal</td>
+                                <td class="text-end fw-bold" style="color:#FF4500;" id="new-total">—</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <div class="d-flex gap-2 justify-content-end">
+                    <a href="{% url 'dashboard' %}" class="btn btn-light rounded-pill px-4">Cancel</a>
+                    <button type="submit" class="btn btn-warning rounded-pill px-5 fw-bold">
+                        <i class="bi bi-check2-circle me-1"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const DISCOUNT = {{ order.discount_amount }};
+function recalc() {
+    let subtotal = 0;
+    document.querySelectorAll('.qty-input').forEach(inp => {
+        const qty   = parseInt(inp.value) || 0;
+        const price = parseFloat(inp.dataset.price) || 0;
+        const row   = inp.closest('tr');
+        const lt    = row.querySelector('.line-total');
+        const lineVal = qty * price;
+        subtotal += lineVal;
+        lt.textContent = lineVal.toFixed(2) + ' EGP';
+        lt.style.color = qty === 0 ? '#dc2626' : '';
+        inp.style.borderColor = qty === 0 ? '#dc2626' : '';
+    });
+    const newTotal = Math.max(0, subtotal - DISCOUNT);
+    document.getElementById('new-total').textContent = newTotal.toFixed(2) + ' EGP';
+}
+document.addEventListener('DOMContentLoaded', recalc);
+</script>
+{% endblock %}

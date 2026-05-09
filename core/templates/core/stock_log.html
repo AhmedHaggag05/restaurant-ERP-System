@@ -1,0 +1,103 @@
+{% extends 'erp_base.html' %}
+{% block page_title %}Stock Log{% endblock %}
+{% block content %}
+<div class="animate-fade-in">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="section-title mb-1">Stock Adjustment Log</h1>
+            <p class="text-secondary mb-0">Full history of every stock movement — sales, restocks, voids, manual edits.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'excel_stock_log' %}" class="btn btn-outline-success rounded-pill px-3">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i> Export Excel
+            </a>
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-dark rounded-pill px-3">
+                <i class="bi bi-arrow-left me-1"></i> Dashboard
+            </a>
+        </div>
+        <div class="card-body p-4">
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label text-secondary small fw-bold text-uppercase">Ingredient</label>
+                    <select name="ingredient" class="form-select rounded-3">
+                        <option value="">All Ingredients</option>
+                        {% for ing in ingredients %}
+                        <option value="{{ ing.id }}" {% if ing_filter == ing.id|stringformat:"s" %}selected{% endif %}>{{ ing.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label text-secondary small fw-bold text-uppercase">Reason</label>
+                    <select name="reason" class="form-select rounded-3">
+                        <option value="">All Reasons</option>
+                        <option value="sale"    {% if reason_filter == 'sale' %}selected{% endif %}>Sale</option>
+                        <option value="restock" {% if reason_filter == 'restock' %}selected{% endif %}>Restock</option>
+                        <option value="manual"  {% if reason_filter == 'manual' %}selected{% endif %}>Manual Adjustment</option>
+                        <option value="void"    {% if reason_filter == 'void' %}selected{% endif %}>Order Void</option>
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button type="submit" class="btn btn-vibrant rounded-pill px-4 flex-grow-1">Filter</button>
+                    <a href="{% url 'stock_log' %}" class="btn btn-outline-secondary rounded-pill px-3">Clear</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light">
+                        <tr class="text-secondary small text-uppercase">
+                            <th class="border-0 py-3 px-4">Date & Time</th>
+                            <th class="border-0 py-3">Ingredient</th>
+                            <th class="border-0 py-3 text-center">Reason</th>
+                            <th class="border-0 py-3 text-end">Before</th>
+                            <th class="border-0 py-3 text-end">Change</th>
+                            <th class="border-0 py-3 text-end">After</th>
+                            <th class="border-0 py-3">By</th>
+                            <th class="border-0 py-3">Note</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr>
+                            <td class="px-4 py-3">
+                                <div class="small fw-bold">{{ log.created_at|date:"H:i" }}</div>
+                                <div class="small text-secondary">{{ log.created_at|date:"d M Y" }}</div>
+                            </td>
+                            <td class="fw-bold small">{{ log.ingredient.name }}</td>
+                            <td class="text-center">
+                                {% if log.reason == 'sale' %}
+                                <span class="badge bg-danger bg-opacity-10 text-danger rounded-pill">Sale</span>
+                                {% elif log.reason == 'restock' %}
+                                <span class="badge bg-success bg-opacity-10 text-success rounded-pill">Restock</span>
+                                {% elif log.reason == 'void' %}
+                                <span class="badge bg-warning bg-opacity-10 text-warning rounded-pill">Void</span>
+                                {% else %}
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary rounded-pill">Manual</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end small text-secondary">{{ log.qty_before|floatformat:3 }}</td>
+                            <td class="text-end small fw-bold {% if log.qty_change > 0 %}text-success{% else %}text-danger{% endif %}">
+                                {{ log.qty_change|floatformat:3 }}
+                            </td>
+                            <td class="text-end small fw-bold">{{ log.qty_after|floatformat:3 }}</td>
+                            <td class="small text-secondary">{{ log.changed_by.username|default:"—" }}</td>
+                            <td class="small text-secondary">{{ log.note|default:"—" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="8" class="text-center py-5 text-secondary">
+                            <i class="bi bi-journal-text display-1 text-light d-block mb-2"></i>
+                            No stock movements recorded yet.
+                        </td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% include "_pagination.html" %}
+        </div>
+    </div>
+</div>
+{% endblock %}

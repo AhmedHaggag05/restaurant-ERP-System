@@ -1,0 +1,423 @@
+{% extends 'erp_base.html' %}
+{% block page_title %}Inventory{% endblock %}
+{% block content %}
+<div class="animate-fade-in">
+
+    <!-- Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-5 gap-3">
+        <div>
+            <h1 class="section-title mb-1">Inventory</h1>
+            <p class="text-secondary mb-0">Define your ingredients — stock is managed automatically via Purchase Orders.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-vibrant rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#addIngredientModal">
+                <i class="bi bi-plus-circle me-1"></i> Add Ingredient
+            </button>
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-dark rounded-pill px-4">
+                <i class="bi bi-arrow-left me-1"></i> Dashboard
+            </a>
+        </div>
+    </div>
+
+    {% if messages %}
+    {% for message in messages %}
+    <div class="alert alert-{{ message.tags }} alert-dismissible fade show rounded-3 mb-4" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <!-- Ingredients Table -->
+    <div class="card border-0 shadow-sm mb-5">
+        <div class="card-body p-4">
+            <h5 class="fw-bold mb-4">All Ingredients</h5>
+            {% for ing in ingredients %}{% if ing.unit == 'boxes' %}{% if forloop.first %}
+            <div class="alert rounded-3 small mb-3 d-flex align-items-start gap-2" style="background:#fff8f0;border:1px solid #fed7aa;">
+                <i class="bi bi-box-seam text-warning mt-1 flex-shrink-0"></i>
+                <div>
+                    <strong>Box ingredients detected.</strong> If the cost shown in the Menu is wrong,
+                    click <strong>Edit</strong> on the ingredient, enter the correct <em>Units per Box</em> and <em>Cost per Box (EGP)</em>,
+                    and save — the per-can/packet cost will recalculate automatically.
+                </div>
+            </div>
+            {% endif %}{% endif %}{% endfor %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="bg-light">
+                        <tr class="text-secondary small text-uppercase">
+                            <th class="py-3 border-0">Ingredient</th>
+                            <th class="py-3 border-0 text-center">Unit</th>
+                            <th class="py-3 border-0 text-center">Current Stock</th>
+                            <th class="py-3 border-0 text-center">Cost / Unit (EGP)</th>
+                            <th class="py-3 border-0 text-end">Total Value (EGP)</th>
+                            <th class="py-3 border-0 text-center">Low Stock Alert</th>
+                            <th class="py-3 border-0 text-center">Status</th>
+                            <th class="py-3 border-0 text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ing in ingredients %}
+                        <tr>
+                            <td class="fw-bold py-3">{{ ing.name }}</td>
+                            <td class="text-center text-secondary">
+                                {% if ing.unit == 'boxes' %}
+                                    <span class="fw-semibold">{{ ing.units_per_box }} {{ ing.sub_unit }}/box</span>
+                                    <div class="text-secondary" style="font-size:.7rem;">(boxes)</div>
+                                {% else %}
+                                    <span class="fw-semibold">{{ ing.unit }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if ing.unit == 'boxes' %}
+                                    <span class="{% if ing.stock_quantity <= ing.low_stock_threshold %}text-danger fw-bold{% endif %}">
+                                        {{ ing.stock_quantity|floatformat:0 }} {{ ing.sub_unit }}
+                                    </span>
+                                {% else %}
+                                    <span class="{% if ing.stock_quantity <= ing.low_stock_threshold %}text-danger fw-bold{% endif %}">
+                                        {{ ing.stock_quantity|floatformat:3 }} {{ ing.unit }}
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">{{ ing.cost_per_unit|floatformat:2 }}</td>
+                            <td class="text-end fw-bold" style="color:#FF4500;">
+                                {{ ing.total_value|floatformat:2 }} EGP
+                            </td>
+                            <td class="text-center">
+                                <span class="small text-secondary">{{ ing.low_stock_threshold|floatformat:1 }} {{ ing.unit }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if ing.is_active %}
+                                    <span class="badge rounded-pill" style="background:#dcfce7;color:#15803d;font-size:.7rem;">Active</span>
+                                {% else %}
+                                    <span class="badge rounded-pill" style="background:#f3f4f6;color:#6b7280;font-size:.7rem;">Archived</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <div class="d-flex gap-2 justify-content-end">
+                                    <!-- Edit button -->
+                                    <button class="btn btn-sm btn-outline-dark rounded-pill px-3"
+                                        data-bs-toggle="modal" data-bs-target="#editIngredientModal"
+                                        data-id="{{ ing.id }}" data-name="{{ ing.name }}"
+                                        data-unit="{{ ing.unit }}" data-stock="{{ ing.stock_quantity|stringformat:'.3f' }}"
+                                        data-cost="{{ ing.cost_per_unit|stringformat:'.4f' }}" data-threshold="{{ ing.low_stock_threshold|stringformat:'.3f' }}"
+                                        data-upb="{{ ing.units_per_box }}" data-subunit="{{ ing.sub_unit }}">
+                                        <i class="bi bi-pencil me-1"></i> Edit
+                                    </button>
+                                    <!-- Archive / Unarchive -->
+                                    <a href="{% url 'archive_ingredient' ing.id %}"
+                                       class="btn btn-sm rounded-pill px-3"
+                                       style="{% if ing.is_active %}border:1px solid #f59e0b;color:#f59e0b;{% else %}border:1px solid #15803d;color:#15803d;{% endif %}"
+                                       onclick="return confirm('{% if ing.is_active %}Archive {{ ing.name|escapejs }}? It will be hidden from POS and new recipes but all history is kept.{% else %}Restore {{ ing.name|escapejs }} to active?{% endif %}')">
+                                        <i class="bi bi-{% if ing.is_active %}archive{% else %}arrow-counterclockwise{% endif %}"></i>
+                                        {% if ing.is_active %}Archive{% else %}Restore{% endif %}
+                                    </a>
+                                    <!-- Delete button with confirmation -->
+                                    <button class="btn btn-sm btn-outline-danger rounded-pill px-3"
+                                        data-bs-toggle="modal" data-bs-target="#deleteIngredientModal"
+                                        data-name="{{ ing.name }}"
+                                        data-url="{% url 'delete_ingredient' ing.id %}">
+                                        <i class="bi bi-trash me-1"></i> Delete
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-secondary">
+                                No ingredients yet. Add your first one!
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr style="background:#fff5f2; border-top:2px solid #FF4500;">
+                            <td colspan="4" class="text-end fw-bold py-3 pe-3" style="font-size:.85rem;">
+                                <i class="bi bi-calculator me-1"></i> Total Inventory Value
+                            </td>
+                            <td class="text-end fw-bold py-3" style="color:#FF4500; font-size:1rem;">
+                                {{ grand_total|floatformat:2 }} EGP
+                            </td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Ingredient Confirmation Modal -->
+<div class="modal fade" id="deleteIngredientModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-danger">Delete Ingredient</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="text-secondary mb-3">Permanently delete <strong id="del-ing-name"></strong>?</p>
+                <div class="alert alert-danger rounded-3 small mb-2">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    <strong>This cannot be undone.</strong> Deletion is blocked if this ingredient appears in any Purchase Order or recipe.
+                </div>
+                <div class="alert alert-info rounded-3 small mb-0">
+                    <i class="bi bi-lightbulb me-1"></i>
+                    <strong>Tip:</strong> Use <strong>Archive</strong> instead — it hides the ingredient from POS and recipes while keeping all history intact.
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0 p-4">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                <a id="del-ing-link" href="#" class="btn btn-danger rounded-pill px-4">
+                    <i class="bi bi-trash me-1"></i> Yes, Delete
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Ingredient Modal -->
+<div class="modal fade" id="addIngredientModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Add New Ingredient</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{% url 'manage_ingredients' %}" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add">
+                <input type="hidden" name="stock_quantity" value="0">
+                <div class="modal-body p-4">
+                    <div class="p-3 rounded-3 mb-4" style="background:#f0f9ff;border:1px solid #bae6fd;">
+                        <small class="text-secondary"><i class="bi bi-info-circle me-1 text-info"></i>
+                        Stock is managed automatically via <strong>Purchase Orders</strong>. Just define the ingredient here.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Ingredient Name</label>
+                        <input type="text" name="name" class="form-control rounded-3" placeholder="e.g. Beef Patty" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Stock Unit</label>
+                        <select name="unit" id="add-unit" class="form-select rounded-3" onchange="toggleAddBoxFields(this.value)">
+                            <option value="kg">Kilogram (kg)</option>
+                            <option value="L">Liter (L)</option>
+                            <option value="pieces">Pieces (pcs)</option>
+                            <option value="boxes">Boxes</option>
+                        </select>
+                    </div>
+                    <!-- Normal unit fields -->
+                    <div id="add-normal-fields">
+                        <div class="mb-3">
+                            <label class="form-label text-secondary small fw-bold text-uppercase">Estimated Cost per Unit (EGP) <span class="text-muted fw-normal">(optional)</span></label>
+                            <input type="number" step="0.0001" min="0" name="cost_per_unit" class="form-control rounded-3" placeholder="Updated automatically on PO receipt">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-secondary small fw-bold text-uppercase">Low Stock Alert Threshold <span id="add-unit-label" class="text-muted fw-normal">(kg)</span></label>
+                            <input type="number" step="0.01" min="0" name="low_stock_threshold" class="form-control rounded-3" placeholder="e.g. 1">
+                        </div>
+                    </div>
+                    <!-- Box fields -->
+                    <div id="add-box-fields" style="display:none;">
+                        <div class="p-3 rounded-3 mb-3" style="background:#fff8f5; border:1px solid #ffd5c8;">
+                            <div class="fw-bold small mb-2 text-vibrant"><i class="bi bi-box-seam me-1"></i> Box Configuration</div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label text-secondary small fw-bold text-uppercase">Units / Box</label>
+                                    <input type="number" step="1" min="1" name="units_per_box" class="form-control rounded-3" placeholder="e.g. 6">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label text-secondary small fw-bold text-uppercase">Sub-unit Type</label>
+                                    <select name="sub_unit" class="form-select rounded-3">
+                                        <option value="packets">Packets</option>
+                                        <option value="cans">Cans</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label text-secondary small fw-bold text-uppercase">Low Stock Alert (boxes)</label>
+                                <input type="number" step="1" min="0" name="low_stock_threshold" class="form-control rounded-3" placeholder="e.g. 2">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0 p-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-vibrant rounded-pill px-4">Add Ingredient</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Ingredient Modal -->
+<div class="modal fade" id="editIngredientModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Edit Ingredient</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{% url 'manage_ingredients' %}" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="edit">
+                <input type="hidden" name="ingredient_id" id="edit-id">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Ingredient Name</label>
+                        <input type="text" name="name" id="edit-name" class="form-control rounded-3" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Unit</label>
+                        <select name="unit" id="edit-unit" class="form-select rounded-3">
+                            <option value="kg">Kilogram (kg)</option>
+                            <option value="L">Liter (L)</option>
+                            <option value="pieces">Pieces</option>
+                            <option value="boxes">Boxes</option>
+                        </select>
+                    </div>
+                    <!-- Normal unit cost field -->
+                    <div class="mb-3" id="edit-cost-normal">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">
+                            Cost per Unit (EGP)
+                        </label>
+                        <input type="number" step="0.0001" min="0" name="cost_per_unit" id="edit-cost" class="form-control rounded-3">
+                        <div class="form-text">Leave blank to keep current. Updated automatically on PO receipt.</div>
+                    </div>
+                    <!-- Box unit cost fields (shown when unit=boxes) -->
+                    <div class="mb-3" id="edit-cost-box" style="display:none;">
+                        <div class="p-3 rounded-3" style="background:#fff8f5;border:1px solid #ffd5c8;">
+                            <div class="fw-bold small mb-2" style="color:#FF4500;"><i class="bi bi-box-seam me-1"></i> Box Configuration</div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label text-secondary small fw-bold text-uppercase">Units / Box</label>
+                                    <input type="number" step="1" min="1" name="edit_units_per_box" id="edit-upb"
+                                           class="form-control rounded-3" placeholder="e.g. 6"
+                                           oninput="recalcEditBoxCost()">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label text-secondary small fw-bold text-uppercase">Sub-unit</label>
+                                    <select name="edit_sub_unit" id="edit-subunit" class="form-select rounded-3">
+                                        <option value="cans">Cans</option>
+                                        <option value="packets">Packets</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label text-secondary small fw-bold text-uppercase">
+                                    Cost per Box (EGP) — <span id="edit-box-calc-label" class="text-muted fw-normal">enter to recalculate per-can cost</span>
+                                </label>
+                                <input type="number" step="0.01" min="0" id="edit-box-cost"
+                                       class="form-control rounded-3" placeholder="e.g. 400"
+                                       oninput="recalcEditBoxCost()">
+                            </div>
+                            <div class="p-2 rounded-3 small" style="background:#fff;border:1px solid #e5e7eb;">
+                                Cost per <span id="edit-subunit-label">can</span>:
+                                <strong id="edit-cpu-preview" style="color:#FF4500;">—</strong> EGP
+                                <input type="hidden" name="cost_per_unit" id="edit-cost-box-hidden">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Low Stock Alert Threshold</label>
+                        <div class="input-group">
+                            <input type="number" step="0.001" min="0" name="low_stock_threshold" id="edit-threshold" class="form-control rounded-start-3" placeholder="e.g. 10">
+                            <span class="input-group-text rounded-end-3 text-secondary" id="edit-threshold-unit" style="min-width:48px;"></span>
+                        </div>
+                        <div class="form-text">Alert fires when stock drops to or below this quantity.</div>
+                    </div>
+                    <div class="p-3 rounded-3 mb-1" style="background:#f8f9fa;font-size:.82rem;color:#6b7280;">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Stock quantity is managed via Purchase Orders. Use the <strong>Adjust Stock</strong> button on the Dashboard for manual corrections.
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0 p-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-vibrant rounded-pill px-4">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+<script>
+function toggleAddBoxFields(unit) {
+    const normal = document.getElementById('add-normal-fields');
+    const box    = document.getElementById('add-box-fields');
+    const unitLbl = document.getElementById('add-unit-label');
+    if (unit === 'boxes') {
+        normal.style.display = 'none';
+        box.style.display    = 'block';
+    } else {
+        normal.style.display = 'block';
+        box.style.display    = 'none';
+        if (unitLbl) unitLbl.textContent = '(' + unit + ')';
+    }
+}
+// Init on page load
+toggleAddBoxFields(document.getElementById('add-unit').value);
+
+// ── Delete modal ──────────────────────────────────────────────────────────
+document.getElementById('deleteIngredientModal').addEventListener('show.bs.modal', function(e) {
+    const btn = e.relatedTarget; if (!btn) return;
+    document.getElementById('del-ing-name').textContent = btn.getAttribute('data-name');
+    document.getElementById('del-ing-link').href = btn.getAttribute('data-url');
+});
+
+// ── Edit modal ────────────────────────────────────────────────────────────
+function recalcEditBoxCost() {
+    const upb      = parseFloat(document.getElementById('edit-upb').value) || 0;
+    const boxCost  = parseFloat(document.getElementById('edit-box-cost').value) || 0;
+    const subLabel = document.getElementById('edit-subunit').value || 'unit';
+    const preview  = document.getElementById('edit-cpu-preview');
+    const hidden   = document.getElementById('edit-cost-box-hidden');
+    const calcLbl  = document.getElementById('edit-box-calc-label');
+    const unitLbl  = document.getElementById('edit-subunit-label');
+    unitLbl.textContent = subLabel.replace(/s$/, '');  // cans→can, packets→packet
+    if (upb > 0 && boxCost > 0) {
+        const cpu = (boxCost / upb).toFixed(4);
+        preview.textContent = cpu;
+        hidden.value = cpu;
+        calcLbl.textContent = `= ${cpu} EGP per ${subLabel.replace(/s$/,'')}`;
+    } else {
+        preview.textContent = '—';
+        hidden.value = '';
+        calcLbl.textContent = 'enter to recalculate per-unit cost';
+    }
+}
+
+document.getElementById('editIngredientModal').addEventListener('show.bs.modal', function(e) {
+    const btn = e.relatedTarget; if (!btn) return;
+    const unit = btn.getAttribute('data-unit') || 'kg';
+    const isBox = unit === 'boxes';
+
+    document.getElementById('edit-id').value        = btn.getAttribute('data-id');
+    document.getElementById('edit-name').value      = btn.getAttribute('data-name');
+    document.getElementById('edit-threshold').value = btn.getAttribute('data-threshold');
+    document.getElementById('edit-threshold-unit').textContent = unit;
+
+    const sel = document.getElementById('edit-unit');
+    for (let opt of sel.options) opt.selected = opt.value === unit;
+
+    // Show correct cost section
+    document.getElementById('edit-cost-normal').style.display = isBox ? 'none' : '';
+    document.getElementById('edit-cost-box').style.display    = isBox ? '' : 'none';
+
+    if (isBox) {
+        const upb     = btn.getAttribute('data-upb') || '1';
+        const subunit = btn.getAttribute('data-subunit') || 'cans';
+        const cpu     = parseFloat(btn.getAttribute('data-cost') || '0');
+        document.getElementById('edit-upb').value = upb;
+        // Pre-fill cost per box = cpu * units_per_box  
+        const boxCost = (cpu * parseInt(upb)).toFixed(2);
+        document.getElementById('edit-box-cost').value = boxCost;
+        // Set sub-unit select
+        const subSel = document.getElementById('edit-subunit');
+        for (let opt of subSel.options) opt.selected = opt.value === subunit;
+        recalcEditBoxCost();
+    } else {
+        document.getElementById('edit-cost').value = btn.getAttribute('data-cost');
+    }
+});
+</script>
+{% endblock %}

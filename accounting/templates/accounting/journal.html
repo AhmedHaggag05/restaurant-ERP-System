@@ -1,0 +1,133 @@
+{% extends "erp_base.html" %}
+{% block title %}Journal{% endblock %}
+{% block page_title %}General Journal{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">General Journal</h1>
+        <p class="erp-page-sub">All double-entry transactions</p>
+    </div>
+    <button class="btn btn-erp btn-primary-erp" data-bs-toggle="modal" data-bs-target="#manualEntryModal">
+        <i class="bi bi-plus-lg me-1"></i> Manual Entry
+    </button>
+</div>
+
+<!-- Filters -->
+<div class="erp-card p-3 mb-4">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+        <div>
+            <label class="erp-form-label">Source</label>
+            <select name="source" class="erp-input" style="width:160px;">
+                <option value="">All sources</option>
+                {% for val, label in SOURCE_CHOICES %}
+                <option value="{{ val }}" {% if source_filter == val %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="erp-form-label">From</label>
+            <input type="date" name="date_from" value="{{ date_from }}" class="erp-input" style="width:150px;">
+        </div>
+        <div>
+            <label class="erp-form-label">To</label>
+            <input type="date" name="date_to" value="{{ date_to }}" class="erp-input" style="width:150px;">
+        </div>
+        <button class="btn btn-erp btn-primary-erp">Filter</button>
+        <a href="{% url 'accounting:journal' %}" class="btn btn-light btn-erp">Reset</a>
+    </form>
+</div>
+
+<div class="erp-card">
+    <div class="erp-card-header"><i class="bi bi-journal-text me-1"></i> Journal Entries</div>
+    {% for je in entries %}
+    <div class="p-3 border-bottom">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+                <span class="fw-bold me-2">{{ je.entry_number }}</span>
+                <span class="text-muted small me-2">{{ je.date }}</span>
+                <span class="status-badge status-draft">{{ je.get_source_display }}</span>
+            </div>
+            <div class="text-muted small">{{ je.created_by.username|default:"system" }}</div>
+        </div>
+        <div class="fw-bold mb-2">{{ je.description }}</div>
+        <table style="width:100%;font-size:.82rem;">
+            {% for line in je.lines.all %}
+            <tr>
+                <td style="width:40%;padding-left:{% if line.side == 'credit' %}2rem{% else %}0{% endif %}">
+                    {{ line.account.code }} — {{ line.account.name }}
+                    {% if line.description %}<span class="text-muted"> ({{ line.description }})</span>{% endif %}
+                </td>
+                <td class="text-end" style="color:{% if line.side == 'debit' %}#1a1d23{% else %}#888{% endif %};">
+                    {% if line.side == 'debit' %}<strong>DR {{ line.amount|floatformat:2 }}</strong>{% endif %}
+                </td>
+                <td class="text-end" style="color:#888;">
+                    {% if line.side == 'credit' %}CR {{ line.amount|floatformat:2 }}{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% empty %}
+    <div class="p-5 text-center text-muted">
+        <i class="bi bi-journal-text" style="font-size:2.5rem;opacity:.3;"></i>
+        <p class="mt-2">No journal entries yet. They will be created automatically as you process sales, purchases, and payroll.</p>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Manual Entry Modal -->
+<div class="modal fade" id="manualEntryModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold">Manual Journal Entry</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="modal-body px-4">
+                    <div class="p-3 rounded-3 mb-3" style="background:#fff8f5;border:1px solid #ffd5c8;">
+                        <small class="text-muted">Simple two-sided entry: one debit, one credit. For complex entries use the admin.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="erp-form-label">Description *</label>
+                        <input type="text" name="description" class="erp-input" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="erp-form-label">Date</label>
+                        <input type="date" name="date" class="erp-input" value="{{ today|date:'Y-m-d' }}">
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="erp-form-label">Debit Account</label>
+                            <select name="dr_account" class="erp-input" required>
+                                <option value="">Select...</option>
+                                {% for acc in accounts %}
+                                <option value="{{ acc.id }}">{{ acc.code }} — {{ acc.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="erp-form-label">Credit Account</label>
+                            <select name="cr_account" class="erp-input" required>
+                                <option value="">Select...</option>
+                                {% for acc in accounts %}
+                                <option value="{{ acc.id }}">{{ acc.code }} — {{ acc.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="erp-form-label">Amount (EGP)</label>
+                            <input type="number" step="0.01" min="0.01" name="amount" class="erp-input" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 px-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-erp btn-erp px-4">Post Entry</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

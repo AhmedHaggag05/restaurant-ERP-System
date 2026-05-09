@@ -1,0 +1,87 @@
+{% extends "erp_base.html" %}
+{% block title %}Purchase Orders{% endblock %}
+{% block page_title %}Purchase Orders{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Purchase Orders</h1>
+        <p class="erp-page-sub">Order ingredients from suppliers</p>
+    </div>
+    <a href="{% url 'purchasing:create_po' %}" class="btn btn-erp btn-primary-erp">
+        <i class="bi bi-plus-lg me-1"></i> New Purchase Order
+    </a>
+</div>
+
+<div class="erp-card">
+    <div class="erp-card-header"><i class="bi bi-file-earmark-text"></i> All Purchase Orders</div>
+    <table class="erp-table">
+        <thead>
+            <tr><th>PO Number</th><th>Supplier</th><th>Order Date</th><th>Expected</th><th class="text-end">Total</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+        {% for po in purchase_orders %}
+        <tr>
+            <td><strong>{{ po.po_number }}</strong></td>
+            <td>{{ po.supplier.name }}</td>
+            <td>{{ po.order_date }}</td>
+            <td>{{ po.expected_date|default:"—" }}</td>
+            <td class="text-end fw-bold">{{ po.total_amount|floatformat:2 }} EGP</td>
+            <td><span class="status-badge status-{{ po.status }}">{{ po.get_status_display }}</span></td>
+            <td>
+                <div class="d-flex gap-1 justify-content-end">
+                    <a href="{% url 'purchasing:po_detail' po.pk %}" class="btn btn-sm btn-outline-secondary rounded-3">
+                        <i class="bi bi-eye"></i> View
+                    </a>
+                    <button class="btn btn-sm btn-outline-danger rounded-3"
+                        data-bs-toggle="modal" data-bs-target="#deletePOModal"
+                        data-num="{{ po.po_number }}"
+                        data-url="{% url 'purchasing:delete_po' po.pk %}">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No purchase orders yet. <a href="{% url 'purchasing:create_po' %}">Create one</a></td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+<!-- Delete PO Modal -->
+<div class="modal fade" id="deletePOModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-danger">Delete Purchase Order</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="text-secondary mb-3">Permanently delete <strong id="del-po-num"></strong>?</p>
+                <div class="alert alert-warning rounded-3 small mb-0">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    All lines and received quantities for this PO will be deleted.
+                    Ingredient stock levels will <strong>not</strong> be reversed.
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0 p-4">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                <form id="delete-po-form" method="post" action="#" style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger rounded-pill px-4">
+                        <i class="bi bi-trash me-1"></i> Delete
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% block extra_js %}
+<script>
+document.getElementById('deletePOModal').addEventListener('show.bs.modal', function(e) {
+    const btn = e.relatedTarget;
+    document.getElementById('del-po-num').textContent = btn.dataset.num;
+    document.getElementById('delete-po-form').action = btn.dataset.url;
+});
+</script>
+{% endblock %}
+{% endblock %}

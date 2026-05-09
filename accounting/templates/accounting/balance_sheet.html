@@ -1,0 +1,103 @@
+{% extends "erp_base.html" %}
+{% block title %}Balance Sheet{% endblock %}
+{% block page_title %}Balance Sheet{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">Balance Sheet</h1>
+        <p class="erp-page-sub">As of {{ as_of }}</p>
+    </div>
+    <form method="get" class="d-flex gap-2 align-items-end">
+        <div><label class="erp-form-label">As of Date</label><input type="date" name="as_of" value="{{ as_of }}" class="erp-input" style="width:160px;"></div>
+        <button class="btn btn-erp btn-primary-erp">Apply</button>
+    </form>
+</div>
+
+{% if not balanced %}
+<div class="alert alert-warning rounded-3"><i class="bi bi-exclamation-triangle me-2"></i>
+    <strong>Balance check:</strong> Assets ({{ total_assets|floatformat:2 }}) ≠ Liabilities + Equity ({{ total_liab|floatformat:2 }} + {{ total_equity|floatformat:2 }}). Check for unposted entries.
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="erp-card mb-4">
+            <div class="erp-card-header" style="color:#0369a1;"><i class="bi bi-building me-1"></i> Assets</div>
+            <table class="erp-table">
+                <thead><tr><th>Account</th><th class="text-end">Balance (EGP)</th></tr></thead>
+                <tbody>
+                {% for line in sections.asset.lines %}
+                <tr>
+                    <td>{{ line.account.code }} — {{ line.account.name }}</td>
+                    <td class="text-end fw-bold">{{ line.amount|floatformat:2 }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="2" class="text-center text-muted py-3">No asset balances</td></tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="background:#e0f2fe;font-weight:700;">
+                        <td>Total Assets</td>
+                        <td class="text-end">{{ total_assets|floatformat:2 }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="erp-card mb-4">
+            <div class="erp-card-header" style="color:#dc2626;"><i class="bi bi-exclamation-circle me-1"></i> Liabilities</div>
+            <table class="erp-table">
+                <thead><tr><th>Account</th><th class="text-end">Balance (EGP)</th></tr></thead>
+                <tbody>
+                {% for line in sections.liability.lines %}
+                <tr>
+                    <td>{{ line.account.code }} — {{ line.account.name }}</td>
+                    <td class="text-end fw-bold">{{ line.amount|floatformat:2 }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="2" class="text-center text-muted py-3">No liability balances</td></tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="background:#fee2e2;font-weight:700;">
+                        <td>Total Liabilities</td>
+                        <td class="text-end">{{ total_liab|floatformat:2 }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <div class="erp-card">
+            <div class="erp-card-header" style="color:#a16207;"><i class="bi bi-graph-up me-1"></i> Equity</div>
+            <table class="erp-table">
+                <thead><tr><th>Account</th><th class="text-end">Balance (EGP)</th></tr></thead>
+                <tbody>
+                {% for line in sections.equity.lines %}
+                <tr>
+                    <td>{{ line.account.code }} — {{ line.account.name }}</td>
+                    <td class="text-end fw-bold">{{ line.amount|floatformat:2 }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="2" class="text-center text-muted py-3">No equity balances</td></tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="background:#fef9c3;font-weight:700;">
+                        <td>Total Equity</td>
+                        <td class="text-end">{{ total_equity|floatformat:2 }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <div class="erp-card mt-3 p-4">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="fw-bold">Liabilities + Equity</div>
+                <div class="fw-bold fs-5" style="color:{% if balanced %}#16a34a{% else %}#dc2626{% endif %};">
+                    {{ total_liab|floatformat:2|add:"" }} + {{ total_equity|floatformat:2 }} EGP
+                    {% if balanced %}<i class="bi bi-check-circle ms-2 text-success"></i>{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

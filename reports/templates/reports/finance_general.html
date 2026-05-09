@@ -1,0 +1,134 @@
+{% extends "erp_base.html" %}
+{% block title %}General Financial Report{% endblock %}
+{% block page_title %}Financial Report{% endblock %}
+{% block content %}
+<div class="erp-page-header">
+    <div>
+        <h1 class="erp-page-title">General Financial Report</h1>
+        <p class="erp-page-sub">{{ period }}</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{% url 'reports:hub' %}" class="btn btn-light btn-erp"><i class="bi bi-arrow-left me-1"></i>Reports</a>
+        <a href="{{ request.get_full_path }}{% if '?' in request.get_full_path %}&{% else %}?{% endif %}{% if date_from %}date_from={{ date_from }}&{% endif %}{% if date_to %}date_to={{ date_to }}{% endif %}" id="pdf-btn" class="btn btn-erp" style="background:#fee2e2;color:#dc2626;border:none;">
+            <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+        </a>
+        <a href="#" id="xl-btn" class="btn btn-erp" style="background:#dcfce7;color:#16a34a;border:none;">
+            <i class="bi bi-file-earmark-excel me-1"></i>Excel
+        </a>
+    </div>
+</div>
+
+<!-- Date filter -->
+<form method="get" class="d-flex gap-2 align-items-center mb-4 flex-wrap">
+    <label class="erp-form-label mb-0">From</label>
+    <input type="date" name="date_from" value="{{ date_from }}" class="erp-input" style="width:160px;">
+    <label class="erp-form-label mb-0">To</label>
+    <input type="date" name="date_to"   value="{{ date_to }}"   class="erp-input" style="width:160px;">
+    <button type="submit" class="btn btn-primary-erp btn-erp" style="padding:.4rem 1rem;">Apply</button>
+    <a href="{% url 'reports:finance_general' %}" class="btn btn-light btn-erp" style="padding:.4rem 1rem;">Clear</a>
+</form>
+
+<!-- KPI cards row -->
+<div class="row g-3 mb-4">
+    {% with cards=True %}
+    <div class="col-6 col-md-3">
+        <div class="erp-card p-3 text-center">
+            <div style="font-size:.75rem;color:#9ca3af;font-weight:600;text-transform:uppercase;">Total Orders</div>
+            <div style="font-size:1.8rem;font-weight:800;color:#111;">{{ n_orders }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="erp-card p-3 text-center">
+            <div style="font-size:.75rem;color:#9ca3af;font-weight:600;text-transform:uppercase;">Total Revenue</div>
+            <div style="font-size:1.5rem;font-weight:800;color:#FF4500;">{{ total_rev|floatformat:2 }} <span style="font-size:.9rem;font-weight:400;color:#9ca3af;">EGP</span></div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="erp-card p-3 text-center">
+            <div style="font-size:.75rem;color:#9ca3af;font-weight:600;text-transform:uppercase;">Gross Profit</div>
+            <div style="font-size:1.5rem;font-weight:800;color:#16a34a;">{{ gross_profit|floatformat:2 }} <span style="font-size:.9rem;font-weight:400;color:#9ca3af;">EGP</span></div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="erp-card p-3 text-center">
+            <div style="font-size:.75rem;color:#9ca3af;font-weight:600;text-transform:uppercase;">Net Profit</div>
+            <div style="font-size:1.5rem;font-weight:800;color:{% if net_profit >= 0 %}#FF4500{% else %}#dc2626{% endif %};">{{ net_profit|floatformat:2 }} <span style="font-size:.9rem;font-weight:400;color:#9ca3af;">EGP</span></div>
+        </div>
+    </div>
+    {% endwith %}
+</div>
+
+<div class="row g-4">
+    <!-- P&L Summary -->
+    <div class="col-md-4">
+        <div class="erp-card p-4">
+            <div class="erp-card-header px-0 pt-0 mb-3"><i class="bi bi-calculator me-1"></i> P&L Summary</div>
+            <table class="w-100" style="font-size:.9rem;">
+                <tr><td class="text-muted">Revenue</td>      <td class="text-end fw-bold">{{ total_rev|floatformat:2 }}</td></tr>
+                <tr><td class="text-muted">COGS</td>         <td class="text-end text-danger">- {{ total_cogs|floatformat:2 }}</td></tr>
+                <tr style="border-top:1px solid #f0f0f0;"><td class="py-1 fw-semibold">Gross Profit</td><td class="text-end fw-bold">{{ gross_profit|floatformat:2 }}</td></tr>
+                <tr><td class="text-muted" style="font-size:.8rem;">Gross Margin</td><td class="text-end text-muted" style="font-size:.8rem;">{{ gross_margin }}%</td></tr>
+                <tr><td class="text-muted">Expenses</td>     <td class="text-end text-danger">- {{ total_exp|floatformat:2 }}</td></tr>
+                <tr><td class="text-muted">Payroll</td>      <td class="text-end text-danger">- {{ payroll|floatformat:2 }}</td></tr>
+                <tr style="border-top:2px solid #FF4500;margin-top:.5rem;">
+                    <td class="pt-2 fw-bold">Net Profit</td>
+                    <td class="text-end fw-bold pt-2" style="color:{% if net_profit >= 0 %}#FF4500{% else %}#dc2626{% endif %};">{{ net_profit|floatformat:2 }} EGP</td>
+                </tr>
+                <tr><td class="text-muted" style="font-size:.8rem;">Avg Order Value</td><td class="text-end text-muted" style="font-size:.8rem;">{{ avg_order|floatformat:2 }} EGP</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Item breakdown -->
+    <div class="col-md-8">
+        <div class="erp-card p-4">
+            <div class="erp-card-header px-0 pt-0 mb-3"><i class="bi bi-list-ol me-1"></i> Sales by Menu Item</div>
+            <div class="table-responsive">
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th><th>Category</th>
+                            <th class="text-end">Qty</th>
+                            <th class="text-end">Revenue</th>
+                            <th class="text-end">COGS</th>
+                            <th class="text-end">Gross Profit</th>
+                            <th class="text-end">Margin</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for it in items %}
+                        <tr>
+                            <td class="fw-semibold">{{ it.name }}</td>
+                            <td><span class="badge bg-light text-dark" style="font-size:.72rem;">{{ it.category }}</span></td>
+                            <td class="text-end">{{ it.qty }}</td>
+                            <td class="text-end">{{ it.revenue|floatformat:2 }}</td>
+                            <td class="text-end text-danger">{{ it.cogs|floatformat:2 }}</td>
+                            <td class="text-end fw-semibold" style="color:#16a34a;">{{ it.gp|floatformat:2 }}</td>
+                            <td class="text-end">
+                                <span class="badge" style="background:#f0fdf4;color:#16a34a;font-size:.72rem;">{{ it.margin|floatformat:1 }}%</span>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="7" class="text-center text-muted py-4">No sales in this period.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+// Wire download buttons with current date params
+const df = '{{ date_from }}', dt = '{{ date_to }}';
+function makeUrl(base) {
+    const p = new URLSearchParams();
+    if (df) p.set('date_from', df);
+    if (dt) p.set('date_to', dt);
+    return base + (p.toString() ? '?' + p.toString() : '');
+}
+document.getElementById('pdf-btn').href = makeUrl('{% url "reports:finance_general_pdf" %}');
+document.getElementById('xl-btn').href  = makeUrl('{% url "reports:finance_general_excel" %}');
+</script>
+{% endblock %}

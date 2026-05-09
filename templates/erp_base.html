@@ -1,0 +1,470 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Searing Sandwiches ERP{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary: #FF4500;
+            --primary-soft: #FFF5F2;
+            --sidebar-w: 240px;
+            --sidebar-bg: #1a1d23;
+            --sidebar-hover: #2a2d35;
+            --sidebar-active: #FF4500;
+            --topbar-h: 56px;
+        }
+        * { box-sizing: border-box; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f4f5f7; margin: 0; overflow-x: hidden; }
+
+        /* ── Sidebar ── */
+        .erp-sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            width: var(--sidebar-w);
+            background: var(--sidebar-bg);
+            display: flex; flex-direction: column;
+            z-index: 1000; overflow-y: auto; overflow-x: hidden;
+            transition: width .25s;
+        }
+        .erp-sidebar::-webkit-scrollbar { width: 4px; }
+        .erp-sidebar::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+
+        .sidebar-brand {
+            padding: 1.2rem 1.25rem 1rem;
+            border-bottom: 1px solid rgba(255,255,255,.07);
+            flex-shrink: 0;
+        }
+        .sidebar-brand .brand-name {
+            font-size: 1rem; font-weight: 800; color: white; letter-spacing: -.5px;
+        }
+        .sidebar-brand .brand-name span { color: var(--primary); }
+        .sidebar-brand .brand-sub { font-size: .65rem; color: rgba(255,255,255,.4); text-transform: uppercase; letter-spacing: .1em; }
+
+        .sidebar-section { padding: .5rem 0; }
+        .sidebar-section-label {
+            font-size: .6rem; font-weight: 700; color: rgba(255,255,255,.3);
+            text-transform: uppercase; letter-spacing: .12em;
+            padding: .75rem 1.25rem .25rem;
+        }
+        .sidebar-link {
+            display: flex; align-items: center; gap: .75rem;
+            padding: .55rem 1.25rem; color: rgba(255,255,255,.6);
+            text-decoration: none; font-size: .82rem; font-weight: 600;
+            border-radius: 0; transition: all .15s;
+            border-left: 3px solid transparent;
+        }
+        .sidebar-link:hover { background: var(--sidebar-hover); color: white; }
+        .sidebar-link.active { background: rgba(255,69,0,.15); color: white; border-left-color: var(--primary); }
+        .sidebar-link i { font-size: 1rem; width: 18px; text-align: center; flex-shrink: 0; }
+
+        .sidebar-footer {
+            margin-top: auto; padding: .75rem 1.25rem;
+            border-top: 1px solid rgba(255,255,255,.07);
+            font-size: .75rem; color: rgba(255,255,255,.35);
+        }
+        .sidebar-footer a { color: rgba(255,255,255,.5); text-decoration: none; }
+        .sidebar-footer a:hover { color: white; }
+
+        /* ── Top bar ── */
+        .erp-topbar {
+            position: fixed; top: 0; left: var(--sidebar-w); right: 0;
+            height: var(--topbar-h); background: white;
+            border-bottom: 1px solid #e9ecef;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 1.5rem; z-index: 900;
+            box-shadow: 0 1px 4px rgba(0,0,0,.04);
+        }
+        .topbar-title { font-size: 1rem; font-weight: 700; color: #1a1d23; }
+        .topbar-right { display: flex; align-items: center; gap: 1rem; }
+        .topbar-user {
+            display: flex; align-items: center; gap: .5rem;
+            font-size: .82rem; font-weight: 600; color: #444;
+        }
+        .topbar-user .avatar {
+            width: 30px; height: 30px; background: var(--primary);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            color: white; font-size: .75rem; font-weight: 800;
+        }
+        .topbar-badge {
+            font-size: .7rem; background: var(--primary); color: white;
+            padding: .15rem .5rem; border-radius: 999px; font-weight: 700;
+        }
+
+        /* ── Main content ── */
+        .erp-main {
+            margin-left: var(--sidebar-w);
+            padding-top: var(--topbar-h);
+            min-height: 100vh;
+        }
+        .erp-content { padding: 1.75rem 2rem; }
+
+        /* ── Page header ── */
+        .erp-page-header {
+            display: flex; align-items: flex-start; justify-content: space-between;
+            margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;
+        }
+        .erp-page-title { font-size: 1.35rem; font-weight: 800; color: #1a1d23; margin: 0; }
+        .erp-page-sub { font-size: .82rem; color: #888; margin: .2rem 0 0; }
+
+        /* ── Cards ── */
+        .erp-card {
+            background: white; border-radius: 16px;
+            border: 1px solid #f0f0f0; overflow: hidden;
+            box-shadow: 0 1px 8px rgba(0,0,0,.04);
+        }
+        .erp-card-header {
+            padding: 1rem 1.25rem; border-bottom: 1px solid #f5f5f5;
+            font-weight: 700; font-size: .9rem; color: #1a1d23;
+            display: flex; align-items: center; gap: .5rem;
+        }
+
+        /* ── KPI stat cards ── */
+        .stat-card {
+            background: white; border-radius: 16px; padding: 1.25rem 1.5rem;
+            border: 1px solid #f0f0f0; box-shadow: 0 1px 8px rgba(0,0,0,.04);
+        }
+        .stat-card .stat-label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #888; }
+        .stat-card .stat-value { font-size: 1.6rem; font-weight: 900; color: #1a1d23; line-height: 1.1; margin: .35rem 0 .25rem; }
+        .stat-card .stat-sub   { font-size: .75rem; color: #aaa; }
+        .stat-card .stat-icon  {
+            width: 42px; height: 42px; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem; margin-bottom: .75rem;
+        }
+
+        /* ── Tables ── */
+        .erp-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+        .erp-table thead th {
+            background: #f8f9fa; font-size: .72rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .05em; color: #888;
+            padding: .75rem 1rem; border-bottom: 1px solid #f0f0f0; white-space: nowrap;
+        }
+        .erp-table tbody td { padding: .75rem 1rem; border-bottom: 1px solid #f8f9fa; font-size: .85rem; vertical-align: middle; }
+        .erp-table tbody tr:last-child td { border-bottom: none; }
+        .erp-table tbody tr:hover td { background: #fafafa; }
+
+        /* ── Status badges ── */
+        .status-badge { font-size: .7rem; font-weight: 700; padding: .2rem .65rem; border-radius: 999px; white-space: nowrap; }
+        .status-draft     { background: #f3f4f6; color: #6b7280; }
+        .status-paid      { background: #dcfce7; color: #15803d; }
+        .status-unpaid    { background: #fee2e2; color: #b91c1c; }
+        .status-partial   { background: #fef9c3; color: #a16207; }
+        .status-sent      { background: #e0f2fe; color: #0369a1; }
+        .status-received  { background: #dcfce7; color: #15803d; }
+        .status-cancelled { background: #f3f4f6; color: #9ca3af; }
+        .status-pending   { background: #fef9c3; color: #a16207; }
+        .status-approved  { background: #dcfce7; color: #15803d; }
+        .status-rejected  { background: #fee2e2; color: #b91c1c; }
+        .status-deducted  { background: #e0f2fe; color: #0369a1; }
+        .status-present   { background: #dcfce7; color: #15803d; }
+        .status-absent    { background: #fee2e2; color: #b91c1c; }
+        .status-late      { background: #fef9c3; color: #a16207; }
+        .status-half_day  { background: #e0f2fe; color: #0369a1; }
+        .status-leave     { background: #f3e8ff; color: #7e22ce; }
+
+        /* ── Buttons ── */
+        .btn-erp { border-radius: 10px; font-weight: 700; font-size: .82rem; padding: .45rem 1.1rem; }
+        .btn-primary-erp { background: var(--primary); color: white; border: none; }
+        .btn-primary-erp:hover { background: #e03d00; color: white; }
+
+        /* ── Forms ── */
+        .erp-form-label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #888; margin-bottom: .3rem; }
+        .erp-input { border: 1.5px solid #e8e8e8; border-radius: 10px; padding: .45rem .75rem; font-size: .85rem; width: 100%; outline: none; transition: border-color .15s; }
+        .erp-input:focus { border-color: var(--primary); }
+
+        /* Alerts */
+        .erp-alert { border-radius: 12px; padding: .75rem 1rem; font-size: .85rem; margin-bottom: 1rem; }
+
+        /* ── Responsive ── */
+        @media (max-width: 768px) {
+            .erp-sidebar { transform: translateX(-100%); }
+            .erp-sidebar.open { transform: translateX(0); }
+            .erp-main { margin-left: 0; }
+            .erp-topbar { left: 0; }
+            .erp-content { padding: 1rem; }
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════════════════════ -->
+<style>
+.sidebar-group-toggle {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:.55rem 1.25rem; cursor:pointer;
+    font-size:.6rem; font-weight:700; color:rgba(255,255,255,.3);
+    text-transform:uppercase; letter-spacing:.12em;
+    user-select:none; transition:color .15s;
+}
+.sidebar-group-toggle:hover { color:rgba(255,255,255,.6); }
+.sidebar-group-toggle .toggle-arrow {
+    font-size:.65rem; transition:transform .2s;
+}
+.sidebar-group-toggle.collapsed .toggle-arrow { transform:rotate(-90deg); }
+.sidebar-group-body { overflow:hidden; transition:max-height .25s ease; }
+.sidebar-group-body.collapsed { max-height:0 !important; }
+</style>
+
+<nav class="erp-sidebar" id="erpSidebar">
+    <div class="sidebar-brand">
+        <div class="brand-name"><span>SEARING</span> SANDWICHES</div>
+        <div class="brand-sub">ERP System</div>
+    </div>
+
+    <!-- ── POS & Operations ── -->
+    <div class="sidebar-section pt-2">
+        <div class="sidebar-group-toggle" onclick="toggleGroup('grp-pos',this)">
+            <span>POS &amp; Operations</span><i class="bi bi-chevron-down toggle-arrow"></i>
+        </div>
+        <div class="sidebar-group-body" id="grp-pos">
+            <a href="{% url 'dashboard' %}" class="sidebar-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+                <i class="bi bi-speedometer2"></i> Dashboard
+            </a>
+            <a href="{% url 'pos' %}" class="sidebar-link {% if request.resolver_match.url_name == 'pos' %}active{% endif %}">
+                <i class="bi bi-bag-check"></i> POS
+            </a>
+            <a href="{% url 'manage_orders' %}" class="sidebar-link {% if request.resolver_match.url_name == 'manage_orders' %}active{% endif %}">
+                <i class="bi bi-list-ol"></i> Manage Orders
+            </a>
+        </div>
+    </div>
+
+    <!-- ── Inventory ── -->
+    <div class="sidebar-section">
+        <div class="sidebar-group-toggle" onclick="toggleGroup('grp-inv',this)">
+            <span>Inventory</span><i class="bi bi-chevron-down toggle-arrow"></i>
+        </div>
+        <div class="sidebar-group-body" id="grp-inv">
+            <a href="{% url 'manage_ingredients_page' %}" class="sidebar-link {% if 'ingredient' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-boxes"></i> Inventory
+            </a>
+            <a href="{% url 'stock_log' %}" class="sidebar-link {% if request.resolver_match.url_name == 'stock_log' %}active{% endif %}">
+                <i class="bi bi-clipboard-data"></i> Stock Log
+            </a>
+            <a href="{% url 'damaged_stock' %}" class="sidebar-link {% if request.resolver_match.url_name == 'damaged_stock' %}active{% endif %}">
+                <i class="bi bi-exclamation-triangle"></i> Damaged Inventory
+            </a>
+            <a href="{% url 'cost_history' %}" class="sidebar-link {% if request.resolver_match.url_name == 'cost_history' %}active{% endif %}">
+                <i class="bi bi-clock-history"></i> Cost History
+            </a>
+            <a href="{% url 'manage_menu' %}" class="sidebar-link {% if 'menu' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-menu-button-wide"></i> Menu
+            </a>
+            <a href="{% url 'manage_categories' %}" class="sidebar-link {% if request.resolver_match.url_name == 'manage_categories' %}active{% endif %}">
+                <i class="bi bi-tags"></i> Categories
+            </a>
+        </div>
+    </div>
+
+    <!-- ── Purchasing ── -->
+    <div class="sidebar-section">
+        <div class="sidebar-group-toggle" onclick="toggleGroup('grp-pur',this)">
+            <span>Purchasing</span><i class="bi bi-chevron-down toggle-arrow"></i>
+        </div>
+        <div class="sidebar-group-body" id="grp-pur">
+            <a href="{% url 'purchasing:suppliers' %}" class="sidebar-link {% if 'supplier' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-truck"></i> Suppliers
+            </a>
+            <a href="{% url 'purchasing:purchase_orders' %}" class="sidebar-link {% if 'purchase_order' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-file-earmark-text"></i> Purchase Orders
+            </a>
+            <a href="{% url 'purchasing:invoices' %}" class="sidebar-link {% if 'invoice' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-receipt"></i> Supplier Invoices
+            </a>
+        </div>
+    </div>
+
+    <!-- ── HR ── -->
+    <div class="sidebar-section">
+        <div class="sidebar-group-toggle" onclick="toggleGroup('grp-hr',this)">
+            <span>Human Resources</span><i class="bi bi-chevron-down toggle-arrow"></i>
+        </div>
+        <div class="sidebar-group-body" id="grp-hr">
+            <a href="{% url 'hr:employees' %}" class="sidebar-link {% if request.resolver_match.url_name == 'employees' %}active{% endif %}">
+                <i class="bi bi-people"></i> Employees
+            </a>
+            <a href="{% url 'hr:attendance' %}" class="sidebar-link {% if 'attendance' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-calendar3"></i> Attendance
+            </a>
+            <a href="{% url 'hr:salary_runs' %}" class="sidebar-link {% if 'salary' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-cash-stack"></i> Payroll
+            </a>
+            <a href="{% url 'hr:advances' %}" class="sidebar-link {% if 'advance' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-wallet2"></i> Advances
+            </a>
+        </div>
+    </div>
+
+    <!-- ── Accounting ── -->
+    <div class="sidebar-section">
+        <div class="sidebar-group-toggle" onclick="toggleGroup('grp-acc',this)">
+            <span>Accounting</span><i class="bi bi-chevron-down toggle-arrow"></i>
+        </div>
+        <div class="sidebar-group-body" id="grp-acc">
+            <a href="{% url 'accounting:chart_of_accounts' %}" class="sidebar-link {% if 'account' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-journal-bookmark"></i> Chart of Accounts
+            </a>
+            <a href="{% url 'accounting:journal' %}" class="sidebar-link {% if 'journal' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-journal-text"></i> Journal
+            </a>
+            <a href="{% url 'accounting:profit_loss' %}" class="sidebar-link {% if 'profit_loss' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-bar-chart-line"></i> P&amp;L Report
+            </a>
+            <a href="{% url 'accounting:balance_sheet' %}" class="sidebar-link {% if 'balance_sheet' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-bank"></i> Balance Sheet
+            </a>
+            <a href="{% url 'manage_expenses' %}" class="sidebar-link {% if 'expense' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-receipt-cutoff"></i> Expenses
+            </a>
+        </div>
+    </div>
+
+    <!-- ── Reports ── -->
+    <div class="sidebar-section">
+        <div class="sidebar-group-toggle" onclick="toggleGroup('grp-rep',this)">
+            <span>Reports &amp; Exports</span><i class="bi bi-chevron-down toggle-arrow"></i>
+        </div>
+        <div class="sidebar-group-body" id="grp-rep">
+            <a href="{% url 'sales_report' %}" class="sidebar-link {% if request.resolver_match.url_name == 'sales_report' %}active{% endif %}">
+                <i class="bi bi-graph-up"></i> Sales Report
+            </a>
+            <a href="{% url 'shift_report' %}" class="sidebar-link {% if request.resolver_match.url_name == 'shift_report' %}active{% endif %}">
+                <i class="bi bi-calendar-check"></i> Shift Report
+            </a>
+            <a href="{% url 'stock_log' %}" class="sidebar-link {% if request.resolver_match.url_name == 'stock_log' %}active{% endif %}">
+                <i class="bi bi-clipboard-data"></i> Stock Log
+            </a>
+            <a href="{% url 'cost_history' %}" class="sidebar-link {% if request.resolver_match.url_name == 'cost_history' %}active{% endif %}">
+                <i class="bi bi-clock-history"></i> Cost History
+            </a>
+            <a href="{% url 'damaged_stock' %}" class="sidebar-link {% if request.resolver_match.url_name == 'damaged_stock' %}active{% endif %}">
+                <i class="bi bi-exclamation-triangle"></i> Damage Log
+            </a>
+            <a href="{% url 'accounting:profit_loss' %}" class="sidebar-link {% if request.resolver_match.url_name == 'profit_loss' %}active{% endif %}">
+                <i class="bi bi-bar-chart-line"></i> P&amp;L
+            </a>
+            <a href="{% url 'accounting:balance_sheet' %}" class="sidebar-link {% if request.resolver_match.url_name == 'balance_sheet' %}active{% endif %}">
+                <i class="bi bi-bank"></i> Balance Sheet
+            </a>
+            <a href="{% url 'reports:hub' %}" class="sidebar-link {% if request.resolver_match.app_name == 'reports' %}active{% endif %}">
+                <i class="bi bi-download"></i> Export All Reports
+            </a>
+        </div>
+    </div>
+
+    <!-- ── Admin ── -->
+    <div class="sidebar-section">
+        <div class="sidebar-group-toggle" onclick="toggleGroup('grp-adm',this)">
+            <span>Admin</span><i class="bi bi-chevron-down toggle-arrow"></i>
+        </div>
+        <div class="sidebar-group-body" id="grp-adm">
+            <a href="{% url 'manage_users' %}" class="sidebar-link {% if 'user' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-person-gear"></i> Users
+            </a>
+            <a href="{% url 'manage_promos' %}" class="sidebar-link {% if 'promo' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-percent"></i> Promo Codes
+            </a>
+            <a href="{% url 'activity_log' %}" class="sidebar-link {% if request.resolver_match.url_name == 'activity_log' %}active{% endif %}">
+                <i class="bi bi-shield-check"></i> Activity Log
+            </a>
+            <a href="{% url 'export_full_backup' %}" class="sidebar-link">
+                <i class="bi bi-database-down"></i> Backup Export
+            </a>
+        </div>
+    </div>
+
+    <div class="sidebar-footer">
+        <a href="{% url 'logout' %}"><i class="bi bi-box-arrow-left me-1"></i> Logout</a>
+        <div class="mt-1">{{ user.username }}</div>
+    </div>
+</nav>
+
+<!-- ═══════════════════════ TOP BAR ═══════════════════════════════════════ -->
+<div class="erp-topbar">
+    <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-sm btn-light d-md-none" onclick="document.getElementById('erpSidebar').classList.toggle('open')">
+            <i class="bi bi-list fs-5"></i>
+        </button>
+        <div class="topbar-title">{% block page_title %}ERP{% endblock %}</div>
+    </div>
+    <div class="topbar-right">
+        {% if messages %}
+        {% for message in messages %}
+        <span class="topbar-badge">{{ message }}</span>
+        {% endfor %}
+        {% endif %}
+        <div class="topbar-user">
+            <div class="avatar">{{ user.username|first|upper }}</div>
+            {{ user.username }}
+            {% if user.profile %}<small class="text-muted">({{ user.profile.get_role_display }})</small>{% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════ MAIN CONTENT ════════════════════════════════ -->
+<div class="erp-main">
+    <div class="erp-content">
+        {% if messages %}
+        {% for message in messages %}
+        <div class="erp-alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}
+                    alert alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% block content %}{% endblock %}
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── Sidebar collapse / expand ────────────────────────────────────────────
+const SIDEBAR_KEY = 'ss_sidebar_open';
+
+function toggleGroup(id, toggleEl) {
+    const body  = document.getElementById(id);
+    const isOpen = !body.classList.contains('collapsed');
+    body.classList.toggle('collapsed', isOpen);
+    body.style.maxHeight = isOpen ? '0' : body.scrollHeight + 'px';
+    toggleEl.classList.toggle('collapsed', isOpen);
+    // Persist
+    const saved = JSON.parse(localStorage.getItem(SIDEBAR_KEY) || '{}');
+    saved[id] = !isOpen;
+    localStorage.setItem(SIDEBAR_KEY, JSON.stringify(saved));
+}
+
+function initSidebar() {
+    const saved = JSON.parse(localStorage.getItem(SIDEBAR_KEY) || '{}');
+    document.querySelectorAll('.sidebar-group-body').forEach(body => {
+        const id = body.id;
+        const toggle = body.previousElementSibling;
+        // Check if this group has an active link
+        const hasActive = body.querySelector('.sidebar-link.active');
+        // Default open if has active OR previously saved as open
+        const shouldOpen = hasActive || (saved[id] !== false && saved[id] !== undefined ? saved[id] : (saved[id] === undefined));
+        // Actually: open by default unless user explicitly closed it
+        const explicitlyClosed = saved[id] === false;
+        if (explicitlyClosed && !hasActive) {
+            body.classList.add('collapsed');
+            body.style.maxHeight = '0';
+            toggle.classList.add('collapsed');
+        } else {
+            body.classList.remove('collapsed');
+            body.style.maxHeight = body.scrollHeight + 'px';
+            toggle.classList.remove('collapsed');
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', initSidebar);
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>
