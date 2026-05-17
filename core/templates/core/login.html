@@ -12,21 +12,36 @@
                     <h2 class="fw-bold h1" style="letter-spacing: -1.5px;">Sign In</h2>
                     <p class="text-secondary">Enter your credentials to access the system</p>
                 </div>
-                
-                <form method="post">
+
+                {% if rate_limited %}
+                <div class="alert alert-danger border-0 rounded-4 text-center mb-4" role="alert">
+                    <i class="bi bi-shield-exclamation me-2"></i>
+                    <strong>Too many failed attempts.</strong><br>
+                    <small>Please wait a few minutes before trying again.</small>
+                </div>
+                {% else %}
+                <form method="post" autocomplete="off">
                     {% csrf_token %}
                     <div class="mb-4">
                         <label for="id_username" class="form-label text-secondary small fw-bold text-uppercase ms-1">Username</label>
                         <div class="input-group">
-                            <span class="input-group-text bg-light border-0 rounded-start-4 px-3"><i class="bi bi-person text-secondary"></i></span>
-                            <input type="text" name="username" class="form-control bg-light border-0 rounded-end-4 py-3" id="id_username" placeholder="Username" required>
+                            <span class="input-group-text bg-light border-0 rounded-start-4 px-3">
+                                <i class="bi bi-person text-secondary"></i>
+                            </span>
+                            <input type="text" name="username" class="form-control bg-light border-0 rounded-end-4 py-3"
+                                   id="id_username" placeholder="Username" required
+                                   autocomplete="username" maxlength="150">
                         </div>
                     </div>
                     <div class="mb-4">
                         <label for="id_password" class="form-label text-secondary small fw-bold text-uppercase ms-1">Password</label>
                         <div class="input-group">
-                            <span class="input-group-text bg-light border-0 rounded-start-4 px-3"><i class="bi bi-key text-secondary"></i></span>
-                            <input type="password" name="password" class="form-control bg-light border-0 rounded-end-4 py-3" id="id_password" placeholder="Password" required>
+                            <span class="input-group-text bg-light border-0 rounded-start-4 px-3">
+                                <i class="bi bi-key text-secondary"></i>
+                            </span>
+                            <input type="password" name="password" class="form-control bg-light border-0 rounded-end-4 py-3"
+                                   id="id_password" placeholder="Password" required
+                                   autocomplete="current-password">
                         </div>
                     </div>
                     <div class="d-grid gap-2 mt-5">
@@ -41,9 +56,10 @@
                     <i class="bi bi-exclamation-triangle-fill me-2"></i> Invalid username or password.
                 </div>
                 {% endif %}
+                {% endif %}
             </div>
             <div class="card-footer bg-light border-0 py-4 text-center">
-                <small class="text-secondary fw-bold text-uppercase letter-spacing-1">Searing Sandwiches v1.0</small>
+                <small class="text-secondary fw-bold text-uppercase letter-spacing-1">Searing Sandwiches ERP</small>
             </div>
         </div>
     </div>
@@ -51,8 +67,8 @@
 
 <style>
     .rounded-start-4 { border-radius: 1rem 0 0 1rem !important; }
-    .rounded-end-4 { border-radius: 0 1rem 1rem 0 !important; }
-    .rounded-4 { border-radius: 1rem !important; }
-    .rounded-5 { border-radius: 2rem !important; }
+    .rounded-end-4   { border-radius: 0 1rem 1rem 0 !important; }
+    .rounded-4       { border-radius: 1rem !important; }
+    .rounded-5       { border-radius: 2rem !important; }
 </style>
 {% endblock %}

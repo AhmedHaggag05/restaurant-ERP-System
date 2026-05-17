@@ -8,7 +8,8 @@
     <p class="text-muted">Published on {{ article.created_at|date:"F d, Y" }}</p>
     <hr>
     <div>
-        {{ article.content|safe }}
+        {# article.content is auto-escaped by Django — do NOT use |safe here #}
+        {{ article.content }}
     </div>
 </div>
 {% endblock %}

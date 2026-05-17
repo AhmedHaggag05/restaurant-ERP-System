@@ -10,41 +10,68 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 import certifi
-from pathlib import Path
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR.parent / ".env")
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me")
-DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+# Load .env from project root or parent (Render executor pattern)
+load_dotenv(BASE_DIR / ".env", override=False)
+load_dotenv(BASE_DIR.parent / ".env", override=False)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'restaurant-erp-live.onrender.com', '.onrender.com']
+# ── Mandatory secrets ──────────────────────────────────────────────────────
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    raise RuntimeError(
+        "DJANGO_SECRET_KEY is not set. Set it in environment variables before starting."
+    )
 
-CSRF_TRUSTED_ORIGINS = [
-    origin for origin in [
-        os.getenv("HOST_FQDN", ""),
-        os.getenv("CSRF_TRUSTED_ORIGIN", "")
-    ] if origin
+DEBUG = os.getenv("DJANGO_DEBUG", "false").lower() == "true"
+
+# ── Allowed hosts ──────────────────────────────────────────────────────────
+_raw_hosts = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1")
+ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(",") if h.strip()]
+_render_host = os.getenv("https://restaurant-erp-live.onrender.com", "")
+if _render_host and _render_host not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_render_host)
+
+# ── CSRF ───────────────────────────────────────────────────────────────────
+_csrf_raw = [
+    os.getenv("HOST_FQDN", ""),
+    os.getenv("CSRF_TRUSTED_ORIGIN", ""),
 ]
 CSRF_TRUSTED_ORIGINS = [
-    f"https://{host}" if not host.startswith(("http://", "https://")) else host
-    for host in CSRF_TRUSTED_ORIGINS
+    (f"https://{h}" if not h.startswith(("http://", "https://")) else h)
+    for h in _csrf_raw if h
 ]
 
-# In production (DEBUG=False), enforce HTTPS-only cookies.
-# In local development (DEBUG=True), allow plain http://localhost.
+# ── Cookie / session security ──────────────────────────────────────────────
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
-SESSION_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
-CSRF_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = False          # must be False so JS can read CSRF token
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = 43200            # 12 hours
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_NAME = "ss_session"   # avoid default 'sessionid' fingerprint
+CSRF_COOKIE_NAME = "ss_csrf"
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# ── HTTPS / HSTS ───────────────────────────────────────────────────────────
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = 0 if DEBUG else 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
-# Application definition
+# ── Clickjacking ───────────────────────────────────────────────────────────
+X_FRAME_OPTIONS = 'DENY'
 
+# ── Installed apps ─────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -59,6 +86,7 @@ INSTALLED_APPS = [
     'reports',
 ]
 
+# ── Middleware ─────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -67,11 +95,9 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    # Disable X-Frame-Options middleware to allow Flatlogic preview iframes.
-    # 'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'core.middleware.SecurityHeadersMiddleware',
 ]
-
-X_FRAME_OPTIONS = 'ALLOWALL'
 
 ROOT_URLCONF = 'config.urls'
 
@@ -85,7 +111,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                # IMPORTANT: do not remove – injects PROJECT_DESCRIPTION/PROJECT_IMAGE_URL and cache-busting timestamp
                 'core.context_processors.project_context',
             ],
         },
@@ -94,65 +119,62 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
+# ── Database ───────────────────────────────────────────────────────────────
 DATABASES = {
     'default': {
         'ENGINE': 'django_tidb',
-        'NAME': 'test',
-        'USER': '4SRzDFPavnmyeEV.root',
-        'PASSWORD': 'zDe2s1Feokm71Env',
-        'HOST': 'gateway01.eu-central-1.prod.aws.tidbcloud.com',
-        'PORT': 4000,
+        'NAME': os.environ.get('DB_NAME', 'test'),
+        'USER': os.environ.get('DB_USER', ''),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': int(os.environ.get('DB_PORT', '4000')),
         'OPTIONS': {
             'ssl_mode': 'VERIFY_IDENTITY',
             'ssl': {'ca': certifi.where()},
-        }
+        },
+        'CONN_MAX_AGE': 60,
     },
 }
 
+if not DEBUG:
+    if not os.environ.get('DB_PASSWORD') or not os.environ.get('DB_HOST'):
+        raise RuntimeError(
+            "DB_PASSWORD and DB_HOST must be set as environment variables in production."
+        )
 
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+# ── Cache (for rate limiting) ──────────────────────────────────────────────
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'searing-sandwiches',
+    }
+}
 
+# ── Rate limiting config ───────────────────────────────────────────────────
+LOGIN_RATE_LIMIT_ATTEMPTS = int(os.getenv("LOGIN_RATE_LIMIT_ATTEMPTS", "5"))
+LOGIN_RATE_LIMIT_WINDOW = int(os.getenv("LOGIN_RATE_LIMIT_WINDOW", "300"))
+
+# ── Password validation ────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 10},
     },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
+# ── Internationalisation ───────────────────────────────────────────────────
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
+# ── Static files ───────────────────────────────────────────────────────────
 STATIC_URL = '/static/'
-# Collect static into a separate folder; avoid overlapping with STATICFILES_DIRS.
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') # Where Django collects files for Render
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
 STATICFILES_DIRS = [
     p for p in [
         BASE_DIR / 'static',
@@ -161,10 +183,9 @@ STATICFILES_DIRS = [
     ] if p.exists()
 ]
 
-# Email
+# ── Email ──────────────────────────────────────────────────────────────────
 EMAIL_BACKEND = os.getenv(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.smtp.EmailBackend"
+    "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
 )
 EMAIL_HOST = os.getenv("EMAIL_HOST", "127.0.0.1")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
@@ -178,11 +199,51 @@ CONTACT_EMAIL_TO = [
     for item in os.getenv("CONTACT_EMAIL_TO", DEFAULT_FROM_EMAIL).split(",")
     if item.strip()
 ]
-
-# When both TLS and SSL flags are enabled, prefer SSL explicitly
 if EMAIL_USE_SSL:
     EMAIL_USE_TLS = False
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ── Upload / request limits ────────────────────────────────────────────────
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024   # 5 MB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 500
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024   # 5 MB
+
+# ── Logging ────────────────────────────────────────────────────────────────
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'core': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+}

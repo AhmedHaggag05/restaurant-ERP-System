@@ -17,7 +17,7 @@ def suppliers(request):
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'add':
-            name = request.POST.get('name', '').strip()
+            name = request.POST.get('name', '').strip()[:150]
             if not name:
                 messages.error(request, "Supplier name required.")
             elif Supplier.objects.filter(name__iexact=name).exists():
@@ -25,21 +25,21 @@ def suppliers(request):
             else:
                 Supplier.objects.create(
                     name=name,
-                    contact=request.POST.get('contact', '').strip(),
-                    phone=request.POST.get('phone', '').strip(),
-                    email=request.POST.get('email', '').strip(),
-                    address=request.POST.get('address', '').strip(),
-                    notes=request.POST.get('notes', '').strip(),
+                    contact=request.POST.get('contact', '').strip()[:100],
+                    phone=request.POST.get('phone', '').strip()[:30],
+                    email=request.POST.get('email', '').strip()[:254],
+                    address=request.POST.get('address', '').strip()[:500],
+                    notes=request.POST.get('notes', '').strip()[:1000],
                 )
                 messages.success(request, f"Supplier '{name}' added.")
         elif action == 'edit':
             sup = get_object_or_404(Supplier, id=request.POST.get('supplier_id'))
-            sup.name    = request.POST.get('name', sup.name).strip()
-            sup.contact = request.POST.get('contact', sup.contact).strip()
-            sup.phone   = request.POST.get('phone', sup.phone).strip()
-            sup.email   = request.POST.get('email', sup.email).strip()
-            sup.address = request.POST.get('address', sup.address).strip()
-            sup.notes   = request.POST.get('notes', sup.notes).strip()
+            sup.name    = request.POST.get('name', sup.name).strip()[:150]
+            sup.contact = request.POST.get('contact', sup.contact).strip()[:100]
+            sup.phone   = request.POST.get('phone', sup.phone).strip()[:30]
+            sup.email   = request.POST.get('email', sup.email).strip()[:254]
+            sup.address = request.POST.get('address', sup.address).strip()[:500]
+            sup.notes   = request.POST.get('notes', sup.notes).strip()[:1000]
             sup.is_active = request.POST.get('is_active') == 'on'
             sup.save()
             messages.success(request, f"Supplier '{sup.name}' updated.")
@@ -50,23 +50,19 @@ def suppliers(request):
         return redirect('purchasing:suppliers')
 
     # Build supplier scorecards
-    from django.db.models import Count, Avg, Q
-    from decimal import Decimal
     raw_suppliers = Supplier.objects.prefetch_related('purchase_orders__lines').order_by('name')
     supplier_data = []
     for sup in raw_suppliers:
         pos = list(sup.purchase_orders.all())
-        total_pos     = len(pos)
-        total_spend   = sum(po.total_amount for po in pos)
-        received_pos  = [po for po in pos if po.status in ('received', 'partial')]
-        # On-time: received on or before expected date
+        total_pos   = len(pos)
+        total_spend = sum(po.total_amount for po in pos)
+        received_pos = [po for po in pos if po.status in ('received', 'partial')]
         on_time = sum(
             1 for po in received_pos
             if po.expected_date and po.received_date and po.received_date <= po.expected_date
         )
         with_expected = sum(1 for po in received_pos if po.expected_date and po.received_date)
         on_time_pct = round(on_time / with_expected * 100) if with_expected else None
-        # Average fulfilment rate
         fill_rates = []
         for po in received_pos:
             for line in po.lines.all():
@@ -88,10 +84,12 @@ def suppliers(request):
 @manager_required
 def purchase_orders(request):
     pos = PurchaseOrder.objects.select_related('supplier').prefetch_related('lines').all()
-    suppliers = Supplier.objects.filter(is_active=True).order_by('name')
+    suppliers_qs = Supplier.objects.filter(is_active=True).order_by('name')
     ingredients = Ingredient.objects.all().order_by('name')
     return render(request, 'purchasing/purchase_orders.html', {
-        'purchase_orders': pos, 'suppliers': suppliers, 'ingredients': ingredients,
+        'purchase_orders': pos,
+        'suppliers': suppliers_qs,
+        'ingredients': ingredients,
     })
 
 
@@ -100,7 +98,7 @@ def create_purchase_order(request):
     if request.method == 'POST':
         supplier_id   = request.POST.get('supplier_id')
         expected_date = request.POST.get('expected_date') or None
-        notes         = request.POST.get('notes', '').strip()
+        notes         = request.POST.get('notes', '').strip()[:1000]
         supplier = get_object_or_404(Supplier, id=supplier_id)
 
         po = PurchaseOrder.objects.create(
@@ -111,10 +109,6 @@ def create_purchase_order(request):
             created_by=request.user,
         )
 
-        # Parse line items
-        # NOTE: 'quantity' and 'unit_cost' are hidden fields populated by JS,
-        # always in the ingredient's main stock unit (kg, L, pieces, boxes).
-        # 'qty_entry' and 'unit_cost_entry' are the raw user inputs — ignored server-side.
         ing_ids    = request.POST.getlist('ingredient_id')
         quantities = request.POST.getlist('quantity')
         unit_costs = request.POST.getlist('unit_cost')
@@ -127,15 +121,20 @@ def create_purchase_order(request):
                 ing   = Ingredient.objects.get(id=ing_id)
                 qty_d = Decimal(qty or '0')
                 uc_d  = Decimal(uc  or '0')
-                if qty_d <= 0:
+                if qty_d <= 0 or uc_d < 0:
                     continue
+                # Sanity cap: no single line > 999,999 units
+                if qty_d > 999999 or uc_d > 9999999:
+                    messages.error(request, f"Unreasonable quantity or cost for {ing.name}.")
+                    po.delete()
+                    return redirect('purchasing:create_po')
                 line = PurchaseOrderLine.objects.create(
                     purchase_order=po,
                     ingredient=ing,
                     quantity_ordered=qty_d,
                     unit_cost=uc_d,
                 )
-                total += line.total_cost  # use the model's computed total
+                total += line.total_cost
             except Exception:
                 continue
 
@@ -144,16 +143,16 @@ def create_purchase_order(request):
         messages.success(request, f"Purchase Order {po.po_number} created.")
         return redirect('purchasing:po_detail', pk=po.pk)
 
-    suppliers   = Supplier.objects.filter(is_active=True).order_by('name')
-    ingredients = Ingredient.objects.all().order_by('name')
+    suppliers_qs = Supplier.objects.filter(is_active=True).order_by('name')
+    ingredients  = Ingredient.objects.all().order_by('name')
     return render(request, 'purchasing/create_po.html', {
-        'suppliers': suppliers, 'ingredients': ingredients,
+        'suppliers': suppliers_qs, 'ingredients': ingredients,
     })
 
 
 @manager_required
 def po_detail(request, pk):
-    po = get_object_or_404(PurchaseOrder, pk=pk)
+    po    = get_object_or_404(PurchaseOrder, pk=pk)
     lines = po.lines.select_related('ingredient').all()
 
     if request.method == 'POST':
@@ -169,16 +168,22 @@ def po_detail(request, pk):
                 messages.success(request, f"Status updated to {po.get_status_display()}.")
 
         elif action == 'receive':
-            # Receive goods per line — additive (can receive in multiple partial shipments)
             any_received = False
             for line in lines:
                 received_key = f'received_{line.id}'
-                rec_qty = Decimal(request.POST.get(received_key, '0') or '0')
+                try:
+                    rec_qty = Decimal(request.POST.get(received_key, '0') or '0')
+                except Exception:
+                    rec_qty = Decimal('0')
+                if rec_qty <= 0:
+                    continue
+                # Cap received qty to what was ordered
+                remaining = line.quantity_ordered - line.quantity_received
+                rec_qty = min(rec_qty, remaining)
                 if rec_qty <= 0:
                     continue
                 any_received = True
-                # Accumulate — don't overwrite previous receipts
-                prev_received     = line.quantity_received
+                prev_received = line.quantity_received
                 line.quantity_received = prev_received + rec_qty
                 line.save()
 
@@ -186,19 +191,19 @@ def po_detail(request, pk):
                 old_qty  = ing.stock_quantity
                 old_cost = ing.cost_per_unit
 
-                # For box ingredients: PO quantity is in BOXES but stock is in sub-units (cans/packets)
-                # Convert both quantity and unit cost to sub-unit basis before updating stock
                 if ing.unit == 'boxes' and ing.units_per_box > 0:
                     upb           = Decimal(str(ing.units_per_box))
-                    rec_qty_stock = rec_qty * upb          # boxes → cans/packets
-                    cpu_stock     = line.unit_cost / upb   # cost/box → cost/can
+                    rec_qty_stock = rec_qty * upb
+                    cpu_stock     = line.unit_cost / upb
                 else:
                     rec_qty_stock = rec_qty
                     cpu_stock     = line.unit_cost
 
                 new_qty    = old_qty + rec_qty_stock
                 total_cost = rec_qty_stock * cpu_stock
-                avg_cost   = ((old_qty * old_cost + rec_qty_stock * cpu_stock) / new_qty).quantize(Decimal('0.0001')) if new_qty else cpu_stock
+                avg_cost   = (
+                    (old_qty * old_cost + rec_qty_stock * cpu_stock) / new_qty
+                ).quantize(Decimal('0.0001')) if new_qty else cpu_stock
 
                 ing.stock_quantity = new_qty
                 ing.cost_per_unit  = avg_cost
@@ -211,25 +216,24 @@ def po_detail(request, pk):
                 )
                 CostHistory.objects.create(
                     ingredient=ing, old_cost=old_cost, new_cost=avg_cost,
-                    qty_restocked=rec_qty_stock, total_paid=total_cost, recorded_by=request.user
+                    qty_restocked=rec_qty_stock, total_paid=total_cost,
+                    recorded_by=request.user,
                 )
 
             if not any_received:
                 messages.warning(request, "No quantities entered. Nothing was received.")
                 return redirect('purchasing:po_detail', pk=pk)
 
-            # Refresh lines after saves
             lines = po.lines.select_related('ingredient').all()
             all_received = all(line.quantity_received >= line.quantity_ordered for line in lines)
             po.status = 'received' if all_received else 'partial'
             po.received_date = date.today()
             po.save()
 
-            # Only create invoice if not already created for this PO
             if not po.invoices.exists():
                 SupplierInvoice.objects.create(
                     purchase_order=po, supplier=po.supplier,
-                    amount=po.total_amount, created_by=request.user
+                    amount=po.total_amount, created_by=request.user,
                 )
                 try:
                     from accounting.utils import post_purchase_journal
@@ -248,9 +252,6 @@ def po_detail(request, pk):
 
 @manager_required
 def delete_po(request, pk):
-    """Delete a Purchase Order and all its lines."""
-    from django.shortcuts import get_object_or_404, redirect
-    from django.contrib import messages
     po = get_object_or_404(PurchaseOrder, pk=pk)
     if request.method != 'POST':
         return redirect('purchasing:purchase_orders')
@@ -259,10 +260,11 @@ def delete_po(request, pk):
         po.delete()
         messages.success(request, f"Purchase Order {po_number} deleted.")
     except Exception as e:
-        messages.error(request, f"Could not delete {po_number}: {str(e)}")
+        messages.error(request, f"Could not delete {po_number}.")
     return redirect('purchasing:purchase_orders')
 
 
+@manager_required
 def invoices(request):
     if request.method == 'POST':
         action = request.POST.get('action')
@@ -271,9 +273,12 @@ def invoices(request):
             inv.amount_paid = inv.amount
             inv.status = 'paid'
             inv.save()
-            messages.success(request, f"Invoice marked as paid.")
+            messages.success(request, "Invoice marked as paid.")
         elif action == 'partial_pay':
-            paid = Decimal(request.POST.get('paid_amount', '0') or '0')
+            try:
+                paid = Decimal(request.POST.get('paid_amount', '0') or '0')
+            except Exception:
+                paid = Decimal('0')
             inv.amount_paid = min(paid, inv.amount)
             inv.status = 'paid' if inv.amount_paid >= inv.amount else 'partial'
             inv.save()
@@ -281,9 +286,7 @@ def invoices(request):
         return redirect('purchasing:invoices')
 
     all_inv = SupplierInvoice.objects.select_related('supplier', 'purchase_order').all()
-    totals = all_inv.aggregate(
-        total=Sum('amount'), paid=Sum('amount_paid')
-    )
+    totals = all_inv.aggregate(total=Sum('amount'), paid=Sum('amount_paid'))
     return render(request, 'purchasing/invoices.html', {
         'invoices': all_inv, 'totals': totals,
     })

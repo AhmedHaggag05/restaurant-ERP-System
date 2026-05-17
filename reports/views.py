@@ -1,12 +1,6 @@
 """
 reports/views.py
 Unified reporting module for Searing Sandwiches ERP.
-
-Covers:
-  - hub()                : Reports landing page
-  - finance_general()    : Full P&L with KPIs + per-item breakdown
-  - finance_custom()     : Filterable report (group by item/category/day/week/month)
-  - *_pdf / *_excel      : Download endpoints for every domain
 """
 from __future__ import annotations
 from io import BytesIO
@@ -23,7 +17,6 @@ from core.models import (Order, OrderItem, MenuItem, MenuCategory,
                           StockLog, CostHistory, ActivityLog, DamagedStock)
 from hr.models import AttendanceRecord, SalaryRun, SalaryLine, Advance
 from purchasing.models import PurchaseOrder, PurchaseOrderLine, SupplierInvoice
-
 
 # ── ReportLab ─────────────────────────────────────────────────────────────────
 from reportlab.lib import colors
@@ -47,7 +40,6 @@ GREY        = colors.HexColor('#6b7280')
 LIGHT_GREY  = colors.HexColor('#f3f4f6')
 MID_GREY    = colors.HexColor('#e5e7eb')
 
-# openpyxl constants
 _OH  = 'FF4500'
 _LH  = 'FFF5F2'
 _HDR_FONT  = Font(bold=True, color='FFFFFF', size=9)
@@ -60,6 +52,7 @@ _AL_C      = Alignment(horizontal='center', vertical='center', wrap_text=True)
 _AL_L      = Alignment(horizontal='left',   vertical='center', wrap_text=True)
 _AL_R      = Alignment(horizontal='right',  vertical='center')
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PDF HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -70,7 +63,6 @@ def _pdf_doc(buf, land=False):
         topMargin=1.5*cm,  bottomMargin=1.5*cm)
 
 def _styles():
-    """Return (bold8, norm8) paragraph styles."""
     b = ParagraphStyle('b8', fontName='Helvetica-Bold', fontSize=8)
     n = ParagraphStyle('n8', fontName='Helvetica',      fontSize=8)
     return b, n
@@ -92,7 +84,6 @@ def _pdf_header(story, title, subtitle='', period=''):
     story.append(Spacer(1, 0.3*cm))
 
 def _base_ts():
-    """Base TableStyle with orange header + alternating rows."""
     return TableStyle([
         ('BACKGROUND',    (0, 0), (-1,  0), ORANGE),
         ('TEXTCOLOR',     (0, 0), (-1,  0), colors.white),
@@ -110,7 +101,6 @@ def _base_ts():
     ])
 
 def _totals_row_style(ts, row_idx):
-    """Add totals-row highlight to an existing TableStyle."""
     ts.add('BACKGROUND', (0, row_idx), (-1, row_idx), LIGHT_ORG)
     ts.add('LINEABOVE',  (0, row_idx), (-1, row_idx), 1.2, ORANGE)
 
@@ -119,6 +109,7 @@ def _pdf_response(buf, filename):
     r = HttpResponse(buf.read(), content_type='application/pdf')
     r['Content-Disposition'] = f'attachment; filename="{filename}"'
     return r
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  EXCEL HELPERS
@@ -137,7 +128,6 @@ def _xl_title(ws, text, row=1):
     ws.row_dimensions[row].height = 20
 
 def _xl_headers(ws, cols, row=2):
-    """Write a styled header row. cols = [(label, col_width), ...]"""
     for ci, (label, width) in enumerate(cols, 1):
         c = ws.cell(row=row, column=ci, value=label)
         c.font = _HDR_FONT; c.fill = _HDR_FILL
@@ -156,7 +146,6 @@ def _xl_cell(ws, row, col, value, bold=False, num_fmt=None,
     return c
 
 def _xl_total_row(ws, row, values, num_cols_right=None):
-    """Write an orange-highlighted totals row."""
     for ci, v in enumerate(values, 1):
         is_num = isinstance(v, (int, float, Decimal))
         fmt  = '#,##0.00' if is_num and ci > 1 else None
@@ -164,6 +153,7 @@ def _xl_total_row(ws, row, values, num_cols_right=None):
         _xl_cell(ws, row, ci, v, bold=True,
                  fill=_TOT_FILL, font_color=_OH,
                  num_fmt=fmt, align=aln)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  DATE / QUERY HELPERS
@@ -174,8 +164,16 @@ def _get_dates(request):
     return df, dt
 
 def _filter_by_date(qs, df, dt, field='created_at__date'):
-    if df: qs = qs.filter(**{f'{field}__gte': df})
-    if dt: qs = qs.filter(**{f'{field}__lte': dt})
+    if df:
+        try:
+            qs = qs.filter(**{f'{field}__gte': df})
+        except Exception:
+            pass
+    if dt:
+        try:
+            qs = qs.filter(**{f'{field}__lte': dt})
+        except Exception:
+            pass
     return qs
 
 def _period_label(df, dt):
@@ -185,7 +183,6 @@ def _period_label(df, dt):
     return 'All Time'
 
 def _convert_to_stock_unit(qty, recipe_unit, stock_unit):
-    """Convert recipe quantity to the ingredient's stock unit."""
     q = float(qty)
     if recipe_unit == stock_unit:
         return q
@@ -193,16 +190,16 @@ def _convert_to_stock_unit(qty, recipe_unit, stock_unit):
                'pieces': 1.0, 'packets': 1.0, 'cans': 1.0}
     return q * factors.get(recipe_unit, 1.0)
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
-#  FINANCE DATA ENGINE  (shared by HTML view + PDF + Excel)
+#  FINANCE DATA ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 def _build_finance_general(df, dt):
-    """Compute all KPIs for the General Finance report."""
     orders = Order.objects.filter(status='active').prefetch_related(
         'items__menu_item__ingredients__ingredient').order_by('created_at')
     orders = _filter_by_date(orders, df, dt)
 
-    item_map   = {}   # mid -> dict
+    item_map   = {}
     total_rev  = Decimal('0')
     total_cogs = Decimal('0')
     n_orders   = 0
@@ -214,11 +211,9 @@ def _build_finance_general(df, dt):
             if not mi:
                 continue
             mid = mi.id
-            # Use snapshotted COGS if available (accurate historical cost);
-            # fall back to live calculation for old orders or if column doesn't exist yet.
             _snap = getattr(oi, 'cogs_at_sale', None)
             if _snap and _snap > 0:
-                cogs_unit = _snap / oi.quantity  # per-unit for the item_map
+                cogs_unit = _snap / oi.quantity
             else:
                 cogs_unit = Decimal(str(sum(
                     _convert_to_stock_unit(r.quantity_required, r.recipe_unit, r.ingredient.unit)
@@ -251,8 +246,7 @@ def _build_finance_general(df, dt):
     gross_margin = (gross_profit / total_rev * 100) if total_rev else Decimal('0')
     avg_order    = (total_rev / n_orders) if n_orders else Decimal('0')
 
-    items_sorted = sorted(item_map.values(),
-                          key=lambda x: x['revenue'], reverse=True)
+    items_sorted = sorted(item_map.values(), key=lambda x: x['revenue'], reverse=True)
     for it in items_sorted:
         it['gp']     = it['revenue'] - it['cogs']
         it['margin'] = (it['gp'] / it['revenue'] * 100) if it['revenue'] else Decimal('0')
@@ -274,11 +268,6 @@ def _build_finance_general(df, dt):
     }
 
 def _build_finance_custom(params):
-    """
-    Build custom-grouped finance data.
-    params keys: date_from, date_to, group_by, item_ids[], cat_ids[]
-    group_by options: item | category | day | week | month
-    """
     df       = params.get('date_from', '')
     dt       = params.get('date_to',   '')
     group_by = params.get('group_by', 'item')
@@ -336,14 +325,15 @@ def _build_finance_custom(params):
         row['margin'] = (row['gp'] / row['revenue'] * 100) if row['revenue'] else Decimal('0')
 
     return {
-        'rows':     rows,
-        'group_by': group_by,
-        'period':   _period_label(df, dt),
+        'rows':      rows,
+        'group_by':  group_by,
+        'period':    _period_label(df, dt),
         'date_from': df, 'date_to': dt,
         'total_rev':  sum(r['revenue'] for r in rows),
         'total_cogs': sum(r['cogs']    for r in rows),
         'total_gp':   sum(r['gp']      for r in rows),
     }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  HUB VIEW
@@ -352,14 +342,16 @@ def _build_finance_custom(params):
 def hub(request):
     return render(request, 'reports/hub.html')
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
-#  FINANCE — GENERAL  (HTML page)
+#  FINANCE — GENERAL (HTML)
 # ═══════════════════════════════════════════════════════════════════════════════
 @manager_required
 def finance_general(request):
     df, dt = _get_dates(request)
     ctx = _build_finance_general(df, dt)
     return render(request, 'reports/finance_general.html', ctx)
+
 
 # ── Finance General — PDF ─────────────────────────────────────────────────────
 @manager_required
@@ -375,21 +367,20 @@ def finance_general_pdf(request):
                 f'Orders: {data["n_orders"]}   Avg order: {data["avg_order"]:.2f} EGP',
                 data['period'])
 
-    # KPI summary box
     red8 = ParagraphStyle('red8', fontName='Helvetica', fontSize=8,
                            textColor=colors.HexColor('#dc2626'))
     net_color = ParagraphStyle('np', fontName='Helvetica-Bold', fontSize=8,
                                 textColor=ORANGE if data['net_profit'] >= 0
                                 else colors.HexColor('#dc2626'))
     kpi_rows = [
-        [Paragraph('<b>Metric</b>', b8),          Paragraph('<b>Amount (EGP)</b>', b8)],
-        [Paragraph('Total Revenue',       n8),    Paragraph(f'{data["total_rev"]:.2f}',    n8)],
-        [Paragraph('Total COGS',          n8),    Paragraph(f'{data["total_cogs"]:.2f}',   n8)],
-        [Paragraph('Gross Profit',        n8),    Paragraph(f'{data["gross_profit"]:.2f}', n8)],
-        [Paragraph('Gross Margin',        n8),    Paragraph(f'{data["gross_margin"]:.2f}%',n8)],
-        [Paragraph('Operating Expenses',  n8),    Paragraph(f'- {data["total_exp"]:.2f}',  red8)],
-        [Paragraph('Monthly Payroll',     n8),    Paragraph(f'- {data["payroll"]:.2f}',    red8)],
-        [Paragraph('<b>Net Profit</b>',   b8),
+        [Paragraph('<b>Metric</b>', b8),         Paragraph('<b>Amount (EGP)</b>', b8)],
+        [Paragraph('Total Revenue',      n8),    Paragraph(f'{data["total_rev"]:.2f}',    n8)],
+        [Paragraph('Total COGS',         n8),    Paragraph(f'{data["total_cogs"]:.2f}',   n8)],
+        [Paragraph('Gross Profit',       n8),    Paragraph(f'{data["gross_profit"]:.2f}', n8)],
+        [Paragraph('Gross Margin',       n8),    Paragraph(f'{data["gross_margin"]:.2f}%',n8)],
+        [Paragraph('Operating Expenses', n8),    Paragraph(f'- {data["total_exp"]:.2f}',  red8)],
+        [Paragraph('Monthly Payroll',    n8),    Paragraph(f'- {data["payroll"]:.2f}',    red8)],
+        [Paragraph('<b>Net Profit</b>',  b8),
          Paragraph(f'<b>{data["net_profit"]:.2f}</b>', net_color)],
     ]
     kt  = Table(kpi_rows, colWidths=[7*cm, 4*cm])
@@ -409,31 +400,28 @@ def finance_general_pdf(request):
     story.append(kt)
     story.append(Spacer(1, 0.5*cm))
 
-    # Per-item breakdown table
     story.append(Paragraph('<b>Sales Breakdown by Menu Item</b>', b8))
     story.append(Spacer(1, 0.15*cm))
-    hdrs = ['Item', 'Category', 'Qty Sold', 'Revenue', 'COGS', 'Gross Profit', 'Margin %']
+    hdrs  = ['Item', 'Category', 'Qty Sold', 'Revenue', 'COGS', 'Gross Profit', 'Margin %']
     irows = [[Paragraph(f'<b>{h}</b>', b8) for h in hdrs]]
     for it in data['items']:
         irows.append([
-            Paragraph(it['name'],                 n8),
-            Paragraph(it['category'],             n8),
-            Paragraph(str(it['qty']),             n8),
-            Paragraph(f'{it["revenue"]:.2f}',     n8),
-            Paragraph(f'{it["cogs"]:.2f}',        n8),
-            Paragraph(f'{float(it["gp"]):.2f}',   n8),
+            Paragraph(it['name'],                  n8),
+            Paragraph(it['category'],              n8),
+            Paragraph(str(it['qty']),              n8),
+            Paragraph(f'{it["revenue"]:.2f}',      n8),
+            Paragraph(f'{it["cogs"]:.2f}',         n8),
+            Paragraph(f'{float(it["gp"]):.2f}',    n8),
             Paragraph(f'{float(it["margin"]):.1f}%', n8),
         ])
-    # Totals row
     tot_rev  = data['total_rev']
     tot_cogs = data['total_cogs']
     tot_gp   = data['gross_profit']
     tot_mg   = data['gross_margin']
     irows.append([
-        Paragraph('<b>TOTAL</b>', b8), Paragraph('', n8),
-        Paragraph('', n8),
-        Paragraph(f'<b>{tot_rev:.2f}</b>',  b8),
-        Paragraph(f'<b>{tot_cogs:.2f}</b>', b8),
+        Paragraph('<b>TOTAL</b>', b8), Paragraph('', n8), Paragraph('', n8),
+        Paragraph(f'<b>{tot_rev:.2f}</b>',       b8),
+        Paragraph(f'<b>{tot_cogs:.2f}</b>',      b8),
         Paragraph(f'<b>{float(tot_gp):.2f}</b>', b8),
         Paragraph(f'<b>{float(tot_mg):.1f}%</b>', b8),
     ])
@@ -447,6 +435,7 @@ def finance_general_pdf(request):
     doc.build(story)
     return _pdf_response(buf, 'finance_general.pdf')
 
+
 # ── Finance General — Excel ───────────────────────────────────────────────────
 @manager_required
 def finance_general_excel(request):
@@ -454,7 +443,6 @@ def finance_general_excel(request):
     data   = _build_finance_general(df, dt)
     wb = Workbook()
 
-    # Sheet 1: Summary KPIs
     ws = wb.active; ws.title = 'Summary'
     _xl_title(ws, f'Searing Sandwiches — Financial Report  |  {data["period"]}')
     _xl_headers(ws, [('Metric', 32), ('Value (EGP)', 20)], row=2)
@@ -478,7 +466,6 @@ def finance_general_excel(request):
                  fill=_TOT_FILL if is_net else None,
                  font_color=_OH if is_net else None)
 
-    # Sheet 2: Per-item breakdown
     ws2 = wb.create_sheet('By Menu Item')
     _xl_title(ws2, f'Sales by Menu Item  |  {data["period"]}')
     _xl_headers(ws2, [('Item', 28), ('Category', 20), ('Qty Sold', 10),
@@ -499,7 +486,6 @@ def finance_general_excel(request):
                                   float(data['gross_profit']),
                                   float(data['gross_margin'])])
 
-    # Sheet 3: Expenses
     ws3 = wb.create_sheet('Expenses')
     _xl_title(ws3, f'Operating Expenses  |  {data["period"]}')
     _xl_headers(ws3, [('Date', 14), ('Category', 18), ('Title', 30),
@@ -513,8 +499,9 @@ def finance_general_excel(request):
 
     return _xl_response(wb, 'finance_general.xlsx')
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
-#  FINANCE — CUSTOM  (HTML page)
+#  FINANCE — CUSTOM (HTML)
 # ═══════════════════════════════════════════════════════════════════════════════
 GROUP_CHOICES = [
     ('item',     'Menu Item'),
@@ -556,6 +543,7 @@ def finance_custom(request):
 
     return render(request, 'reports/finance_custom.html', ctx)
 
+
 # ── Finance Custom — PDF ──────────────────────────────────────────────────────
 @manager_required
 def finance_custom_pdf(request):
@@ -596,6 +584,7 @@ def finance_custom_pdf(request):
     doc.build(story)
     return _pdf_response(buf, 'finance_custom.pdf')
 
+
 # ── Finance Custom — Excel ────────────────────────────────────────────────────
 @manager_required
 def finance_custom_excel(request):
@@ -618,6 +607,7 @@ def finance_custom_excel(request):
                   ['TOTAL', '', float(data['total_rev']),
                    float(data['total_cogs']), float(data['total_gp']), round(tot_mg, 2)])
     return _xl_response(wb, 'finance_custom.xlsx')
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PURCHASING REPORTS
@@ -642,26 +632,28 @@ def purchasing_pdf(request):
         lines = list(po.lines.all())
         for i, line in enumerate(lines):
             trows.append([
-                Paragraph(po.po_number if i == 0 else '',               n8),
-                Paragraph(str(po.order_date) if i == 0 else '',         n8),
-                Paragraph(po.supplier.name if i == 0 else '',           n8),
-                Paragraph(po.get_status_display() if i == 0 else '',    n8),
-                Paragraph(line.ingredient.name,                          n8),
-                Paragraph(f'{line.quantity_ordered:.3f} {line.ingredient.unit}', n8),
-                Paragraph(f'{line.quantity_received:.3f}',              n8),
-                Paragraph(f'{line.unit_cost:.4f}',                      n8),
-                Paragraph(f'{line.total_cost:.2f}',                     n8),
+                Paragraph(po.po_number if i == 0 else '',              n8),
+                Paragraph(str(po.order_date) if i == 0 else '',        n8),
+                Paragraph(po.supplier.name if i == 0 else '',          n8),
+                Paragraph(po.get_status_display() if i == 0 else '',   n8),
+                Paragraph(line.ingredient.name if line.ingredient else '—', n8),
+                Paragraph(f'{line.quantity_ordered:.3f} {line.ingredient.unit if line.ingredient else ""}', n8),
+                Paragraph(f'{line.quantity_received:.3f}',             n8),
+                Paragraph(f'{line.unit_cost:.4f}',                     n8),
+                Paragraph(f'{line.total_cost:.2f}',                    n8),
             ])
         if not lines:
             trows.append([Paragraph(po.po_number, n8), Paragraph(str(po.order_date), n8),
                           Paragraph(po.supplier.name, n8), Paragraph(po.get_status_display(), n8),
                           Paragraph('—', n8), Paragraph('—', n8), Paragraph('—', n8),
                           Paragraph('—', n8), Paragraph(f'{po.total_amount:.2f}', n8)])
-    t   = Table(trows, colWidths=[2.2*cm,2.2*cm,3*cm,2.2*cm,3.2*cm,2.6*cm,2.4*cm,2.2*cm,2.5*cm],
-                repeatRows=1)
+    t = Table(trows,
+              colWidths=[2.2*cm,2.2*cm,3*cm,2.2*cm,3.2*cm,2.6*cm,2.4*cm,2.2*cm,2.5*cm],
+              repeatRows=1)
     t.setStyle(_base_ts()); story.append(t)
     doc.build(story)
     return _pdf_response(buf, 'purchase_orders.pdf')
+
 
 @manager_required
 def purchasing_excel(request):
@@ -673,7 +665,6 @@ def purchasing_excel(request):
     pos    = _filter_by_date(pos, df, dt, field='order_date')
     wb = Workbook()
 
-    # Sheet 1: Purchase Orders
     ws = wb.active; ws.title = 'Purchase Orders'
     _xl_title(ws, f'Purchase Orders  |  {_period_label(df, dt)}')
     _xl_headers(ws, [('PO #', 14), ('Date', 13), ('Supplier', 22), ('Status', 16),
@@ -683,9 +674,11 @@ def purchasing_excel(request):
     r = 3
     for po in pos:
         for line in po.lines.all():
+            ing_name = line.ingredient.name if line.ingredient else '—'
+            ing_unit = line.ingredient.unit if line.ingredient else '—'
             vals = [po.po_number, str(po.order_date), po.supplier.name,
-                    po.get_status_display(), line.ingredient.name,
-                    float(line.quantity_ordered), line.ingredient.unit,
+                    po.get_status_display(), ing_name,
+                    float(line.quantity_ordered), ing_unit,
                     float(line.unit_cost), float(line.total_cost),
                     float(line.quantity_received)]
             for ci, v in enumerate(vals, 1):
@@ -694,7 +687,6 @@ def purchasing_excel(request):
                          align=_AL_R if ci >= 6 else _AL_L)
             r += 1
 
-    # Sheet 2: Supplier Invoices
     ws2 = wb.create_sheet('Invoices')
     _xl_title(ws2, f'Supplier Invoices  |  {_period_label(df, dt)}')
     _xl_headers(ws2, [('Invoice #', 16), ('Supplier', 22), ('PO #', 14),
@@ -716,6 +708,7 @@ def purchasing_excel(request):
                      align=_AL_R if ci in (6, 7) else _AL_L)
 
     return _xl_response(wb, 'purchase_orders.xlsx')
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  HR — ATTENDANCE
@@ -747,6 +740,7 @@ def hr_attendance_pdf(request):
     doc.build(story)
     return _pdf_response(buf, 'attendance.pdf')
 
+
 @manager_required
 def hr_attendance_excel(request):
     df, dt = _get_dates(request)
@@ -766,6 +760,7 @@ def hr_attendance_excel(request):
         for ci, v in enumerate(vals, 1):
             _xl_cell(ws, r, ci, v)
     return _xl_response(wb, 'attendance.xlsx')
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  HR — PAYROLL
@@ -800,11 +795,13 @@ def hr_payroll_pdf(request):
                 Paragraph(f'{line.advances:.2f}',    n8),
                 Paragraph(f'{line.net:.2f}',         n8),
             ])
-        t = Table(lrows, colWidths=[4.5*cm,2.2*cm,2.2*cm,2.8*cm,2.5*cm,2.8*cm,2.5*cm,2.5*cm],
+        t = Table(lrows,
+                  colWidths=[4.5*cm,2.2*cm,2.2*cm,2.8*cm,2.5*cm,2.8*cm,2.5*cm,2.5*cm],
                   repeatRows=1)
         t.setStyle(_base_ts()); story.append(t); story.append(Spacer(1, 0.5*cm))
     doc.build(story)
     return _pdf_response(buf, 'payroll.pdf')
+
 
 @manager_required
 def hr_payroll_excel(request):
@@ -839,8 +836,9 @@ def hr_payroll_excel(request):
         wb.active['A1'] = 'No salary runs found for the selected period.'
     return _xl_response(wb, 'payroll.xlsx')
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
-#  INVENTORY REPORT (ingredients + stock log + cost history)
+#  INVENTORY REPORT
 # ═══════════════════════════════════════════════════════════════════════════════
 @manager_required
 def inventory_pdf(request):
@@ -849,7 +847,6 @@ def inventory_pdf(request):
     buf    = BytesIO(); doc = _pdf_doc(buf, land=True); story = []
     _pdf_header(story, 'Inventory Report', '', _period_label(df, dt))
 
-    # Current stock levels
     story.append(Paragraph('<b>Current Stock Levels</b>', b8))
     story.append(Spacer(1, 0.15*cm))
     ings  = Ingredient.objects.order_by('name')
@@ -873,36 +870,36 @@ def inventory_pdf(request):
     ts_ = _base_ts(); _totals_row_style(ts_, len(irows)-1)
     t.setStyle(ts_); story.append(t); story.append(Spacer(1, 0.5*cm))
 
-    # Stock movement log
     story.append(Paragraph('<b>Stock Movement Log</b>', b8))
     story.append(Spacer(1, 0.15*cm))
-    logs  = _filter_by_date(StockLog.objects.select_related('ingredient','changed_by')
+    logs  = _filter_by_date(StockLog.objects.select_related('ingredient', 'changed_by')
                              .order_by('-created_at'), df, dt)
     hdrs2 = ['Date / Time', 'Ingredient', 'Change', 'Unit', 'Before', 'After', 'Reason', 'User']
     lrows = [[Paragraph(f'<b>{h}</b>', b8) for h in hdrs2]]
     for log in logs[:200]:
         lrows.append([
             Paragraph(log.created_at.strftime('%Y-%m-%d %H:%M'), n8),
-            Paragraph(log.ingredient.name, n8),
+            Paragraph(log.ingredient.name if log.ingredient else '—', n8),
             Paragraph(f'{float(log.qty_change):+.3f}', n8),
-            Paragraph(log.ingredient.unit, n8),
+            Paragraph(log.ingredient.unit if log.ingredient else '—', n8),
             Paragraph(f'{float(log.qty_before):.3f}', n8),
             Paragraph(f'{float(log.qty_after):.3f}',  n8),
             Paragraph(log.get_reason_display(), n8),
             Paragraph(log.changed_by.username if log.changed_by else '—', n8),
         ])
-    t2 = Table(lrows, colWidths=[3.2*cm,3.5*cm,1.8*cm,1.5*cm,1.8*cm,1.8*cm,2.5*cm,2.2*cm],
+    t2 = Table(lrows,
+               colWidths=[3.2*cm,3.5*cm,1.8*cm,1.5*cm,1.8*cm,1.8*cm,2.5*cm,2.2*cm],
                repeatRows=1)
     t2.setStyle(_base_ts()); story.append(t2)
     doc.build(story)
     return _pdf_response(buf, 'inventory.pdf')
+
 
 @manager_required
 def inventory_excel(request):
     df, dt = _get_dates(request)
     wb = Workbook()
 
-    # Sheet 1: Current stock
     ws = wb.active; ws.title = 'Stock Levels'
     _xl_title(ws, f'Current Stock Levels  |  {_period_label(df, dt)}')
     _xl_headers(ws, [('Ingredient', 26), ('Unit', 10), ('Stock Qty', 13),
@@ -922,7 +919,6 @@ def inventory_excel(request):
     tot_row = Ingredient.objects.count() + 3
     _xl_total_row(ws, tot_row, ['TOTAL STOCK VALUE', '', '', '', '', total_value])
 
-    # Sheet 2: Stock movement log
     ws2 = wb.create_sheet('Stock Log')
     _xl_title(ws2, f'Stock Movement Log  |  {_period_label(df, dt)}')
     _xl_headers(ws2, [('Date / Time', 18), ('Ingredient', 26), ('Change', 12),
@@ -932,8 +928,9 @@ def inventory_excel(request):
                            .order_by('-created_at'), df, dt)
     for r, log in enumerate(logs, 3):
         vals = [log.created_at.strftime('%Y-%m-%d %H:%M'),
-                log.ingredient.name,
-                float(log.qty_change), log.ingredient.unit,
+                log.ingredient.name if log.ingredient else '—',
+                float(log.qty_change),
+                log.ingredient.unit if log.ingredient else '—',
                 float(log.qty_before), float(log.qty_after),
                 log.get_reason_display(),
                 log.changed_by.username if log.changed_by else '']
@@ -942,7 +939,6 @@ def inventory_excel(request):
                      num_fmt='#,##0.000' if ci in (3, 5, 6) else None,
                      align=_AL_R if ci in (3, 5, 6) else _AL_L)
 
-    # Sheet 3: Cost history
     ws3 = wb.create_sheet('Cost History')
     _xl_title(ws3, f'Ingredient Cost History  |  {_period_label(df, dt)}')
     _xl_headers(ws3, [('Date', 18), ('Ingredient', 26), ('Old Cost', 14),
@@ -951,7 +947,8 @@ def inventory_excel(request):
     hist = _filter_by_date(CostHistory.objects.select_related('ingredient', 'recorded_by')
                            .order_by('-created_at'), df, dt)
     for r, h in enumerate(hist, 3):
-        vals = [h.created_at.strftime('%Y-%m-%d %H:%M'), h.ingredient.name,
+        vals = [h.created_at.strftime('%Y-%m-%d %H:%M'),
+                h.ingredient.name if h.ingredient else '—',
                 float(h.old_cost), float(h.new_cost),
                 float(h.qty_restocked), float(h.total_paid),
                 h.recorded_by.username if h.recorded_by else '']
@@ -963,13 +960,14 @@ def inventory_excel(request):
 
     return _xl_response(wb, 'inventory.xlsx')
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ACTIVITY LOG
 # ═══════════════════════════════════════════════════════════════════════════════
 @manager_required
 def activity_pdf(request):
     df, dt = _get_dates(request)
-    logs   = (ActivityLog.objects.select_related('user').order_by('-created_at'))
+    logs   = ActivityLog.objects.select_related('user').order_by('-created_at')
     logs   = _filter_by_date(logs, df, dt, field='created_at__date')
     b8, n8 = _styles()
     buf    = BytesIO(); doc = _pdf_doc(buf, land=True); story = []
@@ -990,11 +988,14 @@ def activity_pdf(request):
     doc.build(story)
     return _pdf_response(buf, 'activity_log.pdf')
 
+
 @manager_required
 def activity_excel(request):
+    # FIX: was incorrectly ordering/filtering by non-existent 'timestamp' field.
+    # ActivityLog uses 'created_at'.
     df, dt = _get_dates(request)
-    logs   = (ActivityLog.objects.select_related('user').order_by('-timestamp'))
-    logs   = _filter_by_date(logs, df, dt, field='timestamp__date')
+    logs   = ActivityLog.objects.select_related('user').order_by('-created_at')
+    logs   = _filter_by_date(logs, df, dt, field='created_at__date')
     wb = Workbook(); ws = wb.active; ws.title = 'Activity Log'
     _xl_title(ws, f'Activity Log  |  {_period_label(df, dt)}')
     _xl_headers(ws, [('Timestamp', 20), ('User', 18),
@@ -1012,18 +1013,12 @@ def activity_excel(request):
 # ── Ingredient Detail Report ───────────────────────────────────────────────────
 
 def _build_ingredient_detail(ing_ids, df, dt):
-    """
-    For each selected ingredient, pull every PO line (restocks) plus damage events
-    in the date range. Returns list of dicts keyed by ingredient.
-    """
-    from purchasing.models import PurchaseOrderLine
     ings = Ingredient.objects.order_by('name')
     if ing_ids:
         ings = ings.filter(id__in=ing_ids)
 
     results = []
     for ing in ings:
-        # Restock history from PO lines
         po_lines = (PurchaseOrderLine.objects
                     .filter(ingredient=ing, quantity_received__gt=0)
                     .select_related('purchase_order__supplier')
@@ -1033,7 +1028,6 @@ def _build_ingredient_detail(ing_ids, df, dt):
         if dt:
             po_lines = po_lines.filter(purchase_order__received_date__lte=dt)
 
-        # Damage history
         dmg = (DamagedStock.objects
                .filter(ingredient=ing)
                .select_related('order', 'recorded_by')
@@ -1043,58 +1037,56 @@ def _build_ingredient_detail(ing_ids, df, dt):
         if dt:
             dmg = dmg.filter(created_at__date__lte=dt)
 
-        total_restocked   = sum(l.quantity_received for l in po_lines)
+        total_restocked    = sum(l.quantity_received for l in po_lines)
         total_restock_cost = sum(l.quantity_received * l.unit_cost for l in po_lines)
-        total_damaged     = sum(d.qty_damaged for d in dmg)
-        total_damage_cost = sum(d.qty_damaged * ing.cost_per_unit for d in dmg)
+        total_damaged      = sum(d.qty_damaged for d in dmg)
+        total_damage_cost  = sum(d.qty_damaged * ing.cost_per_unit for d in dmg)
 
         results.append({
-            'ingredient':        ing,
-            'po_lines':          list(po_lines),
-            'damage_logs':       list(dmg),
-            'total_restocked':   total_restocked,
+            'ingredient':         ing,
+            'po_lines':           list(po_lines),
+            'damage_logs':        list(dmg),
+            'total_restocked':    total_restocked,
             'total_restock_cost': total_restock_cost,
-            'total_damaged':     total_damaged,
-            'total_damage_cost': total_damage_cost,
+            'total_damaged':      total_damaged,
+            'total_damage_cost':  total_damage_cost,
         })
     return results
 
 
 @manager_required
 def ingredient_detail(request):
-    """HTML filter page for ingredient detail report."""
     df, dt = _get_dates(request)
     all_ings    = Ingredient.objects.order_by('name')
     ing_ids_raw = request.GET.getlist('ingredients')
     ing_ids     = [int(i) for i in ing_ids_raw if i.isdigit()]
-    results     = _build_ingredient_detail(ing_ids, df, dt) if (ing_ids or request.GET.get('show_all')) else []
+    results     = (
+        _build_ingredient_detail(ing_ids, df, dt)
+        if (ing_ids or request.GET.get('show_all'))
+        else []
+    )
 
     return render(request, 'reports/ingredient_detail.html', {
         'all_ingredients': all_ings,
-        'results': results,
-        'selected_ids': ing_ids,
-        'date_from': df.isoformat() if df else '',
-        'date_to':   dt.isoformat() if dt else '',
-        'show_all':  bool(request.GET.get('show_all')),
-        'period_label': _period_label(df, dt),
+        'results':         results,
+        'selected_ids':    ing_ids,
+        'date_from':       df,
+        'date_to':         dt,
+        'show_all':        bool(request.GET.get('show_all')),
+        'period_label':    _period_label(df, dt),
     })
 
 
 @manager_required
 def ingredient_detail_pdf(request):
-    df, dt    = _get_dates(request)
-    ing_ids   = [int(i) for i in request.GET.getlist('ingredients') if i.isdigit()]
-    show_all  = bool(request.GET.get('show_all'))
-    results   = _build_ingredient_detail(ing_ids if not show_all else [], df, dt)
+    df, dt   = _get_dates(request)
+    ing_ids  = [int(i) for i in request.GET.getlist('ingredients') if i.isdigit()]
+    show_all = bool(request.GET.get('show_all'))
+    results  = _build_ingredient_detail(ing_ids if not show_all else [], df, dt)
 
     b8, n8 = _styles()
     buf = BytesIO(); doc = _pdf_doc(buf, land=True); story = []
     _pdf_header(story, 'Ingredient Detail Report', '', _period_label(df, dt))
-
-    ORANGE = colors.HexColor('#FF4500')
-    GREEN  = colors.HexColor('#15803d')
-    RED    = colors.HexColor('#b91c1c')
-    LGREY  = colors.HexColor('#f9fafb')
 
     for res in results:
         ing = res['ingredient']
@@ -1104,8 +1096,8 @@ def ingredient_detail_pdf(request):
             f'Cost/unit: <b>{float(ing.cost_per_unit):.4f} EGP</b>', b8))
         story.append(Spacer(1, 0.1*cm))
 
-        # Restock table
-        story.append(Paragraph('<b>Purchase History</b>', ParagraphStyle('s7', fontName='Helvetica', fontSize=7, textColor=colors.HexColor('#6b7280'))))
+        story.append(Paragraph('<b>Purchase History</b>',
+            ParagraphStyle('s7', fontName='Helvetica', fontSize=7, textColor=GREY)))
         story.append(Spacer(1, 0.08*cm))
         ph = ['PO #', 'Supplier', 'Date Received', 'Qty Ordered', 'Qty Received', 'Unit Cost', 'Total Paid']
         prows = [[Paragraph(f'<b>{h}</b>', b8) for h in ph]]
@@ -1136,8 +1128,8 @@ def ingredient_detail_pdf(request):
         pt.setStyle(pts); story.append(pt)
         story.append(Spacer(1, 0.3*cm))
 
-        # Damage table
-        story.append(Paragraph('<b>Damage / Wastage Log</b>', ParagraphStyle('s7', fontName='Helvetica', fontSize=7, textColor=colors.HexColor('#6b7280'))))
+        story.append(Paragraph('<b>Damage / Wastage Log</b>',
+            ParagraphStyle('s7', fontName='Helvetica', fontSize=7, textColor=GREY)))
         story.append(Spacer(1, 0.08*cm))
         dh = ['Date', 'Qty Damaged', 'Unit', 'Est. Cost (EGP)', 'Linked Order', 'Reason', 'Recorded By']
         drows = [[Paragraph(f'<b>{h}</b>', b8) for h in dh]]
@@ -1155,7 +1147,7 @@ def ingredient_detail_pdf(request):
                 ])
             drows.append([
                 Paragraph('<b>TOTALS</b>', b8),
-                Paragraph(f'<b>{float(res["total_damaged"]):.3f}</b>', b8), '', 
+                Paragraph(f'<b>{float(res["total_damaged"]):.3f}</b>', b8), '',
                 Paragraph(f'<b>{float(res["total_damage_cost"]):.2f} EGP</b>', b8),
                 '', '', '',
             ])
@@ -1168,9 +1160,7 @@ def ingredient_detail_pdf(request):
             _totals_row_style(dts, len(drows)-1)
         dt_.setStyle(dts); story.append(dt_)
         story.append(Spacer(1, 0.6*cm))
-
-        from reportlab.platypus import HRFlowable
-        story.append(HRFlowable(width='100%', thickness=0.5, color=colors.HexColor('#e5e7eb')))
+        story.append(HRFlowable(width='100%', thickness=0.5, color=MID_GREY))
         story.append(Spacer(1, 0.4*cm))
 
     doc.build(story)
@@ -1179,31 +1169,27 @@ def ingredient_detail_pdf(request):
 
 @manager_required
 def ingredient_detail_excel(request):
-    df, dt    = _get_dates(request)
-    ing_ids   = [int(i) for i in request.GET.getlist('ingredients') if i.isdigit()]
-    show_all  = bool(request.GET.get('show_all'))
-    results   = _build_ingredient_detail(ing_ids if not show_all else [], df, dt)
+    df, dt   = _get_dates(request)
+    ing_ids  = [int(i) for i in request.GET.getlist('ingredients') if i.isdigit()]
+    show_all = bool(request.GET.get('show_all'))
+    results  = _build_ingredient_detail(ing_ids if not show_all else [], df, dt)
 
     wb = Workbook()
 
     for res in results:
         ing = res['ingredient']
-        ws_name = ing.name[:30]  # sheet name limit
-        ws = wb.create_sheet(ws_name)
+        ws  = wb.create_sheet(ing.name[:30])
 
-        # Title
         _xl_title(ws, f'{ing.name} — Ingredient Detail  |  {_period_label(df, dt)}')
 
-        # Summary row
         ws.append([])
         ws.append(['Current Stock', f'{float(ing.stock_quantity):.3f} {ing.unit}',
                    'Cost/Unit', f'{float(ing.cost_per_unit):.4f} EGP',
                    'Stock Value', f'{float(ing.stock_quantity * ing.cost_per_unit):.2f} EGP'])
         for ci in range(1, 7):
-            ws.cell(row=3, column=ci).font = __import__('openpyxl').styles.Font(bold=True)
+            ws.cell(row=3, column=ci).font = Font(bold=True)
         ws.append([])
 
-        # Purchase history
         _xl_headers(ws, [('PO #', 14), ('Supplier', 24), ('Date Received', 16),
                          ('Qty Ordered', 14), ('Qty Received', 14),
                          ('Unit Cost (EGP)', 16), ('Total Paid (EGP)', 16)], row=5)
@@ -1218,7 +1204,9 @@ def ingredient_detail_excel(request):
                     float(line.quantity_received * line.unit_cost)]
             for ci, v in enumerate(vals, 1):
                 _xl_cell(ws, r, ci, v,
-                         num_fmt='#,##0.000' if ci in (4,5) else ('#,##0.0000' if ci==6 else '#,##0.00' if ci==7 else None),
+                         num_fmt='#,##0.000' if ci in (4, 5) else
+                                 '#,##0.0000' if ci == 6 else
+                                 '#,##0.00'   if ci == 7 else None,
                          align=_AL_R if ci >= 4 else _AL_L)
             r += 1
         if res['po_lines']:
@@ -1229,7 +1217,6 @@ def ingredient_detail_excel(request):
         ws.append([])
         r += 1
 
-        # Damage history
         dmg_hdr_row = r
         _xl_headers(ws, [('Date', 16), ('Qty Damaged', 14), ('Unit', 10),
                          ('Est. Cost (EGP)', 16), ('Linked Order', 14),
@@ -1243,8 +1230,8 @@ def ingredient_detail_excel(request):
                     d.reason or '', d.recorded_by.username if d.recorded_by else '']
             for ci, v in enumerate(vals, 1):
                 _xl_cell(ws, r, ci, v,
-                         num_fmt='#,##0.000' if ci==2 else '#,##0.00' if ci==4 else None,
-                         align=_AL_R if ci in (2,4) else _AL_L)
+                         num_fmt='#,##0.000' if ci == 2 else '#,##0.00' if ci == 4 else None,
+                         align=_AL_R if ci in (2, 4) else _AL_L)
             r += 1
         if res['damage_logs']:
             _xl_total_row(ws, r, ['TOTALS', float(res['total_damaged']), '',
