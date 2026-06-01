@@ -1,0 +1,22 @@
+{
+  "name": "Searing Sandwiches ERP",
+  "short_name": "Searing POS",
+  "description": "Restaurant POS and Management System",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#FF4500",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/images/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/static/images/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
