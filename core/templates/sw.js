@@ -1,10 +1,9 @@
-const CACHE_NAME = 'searing-pos-v1';
+// Change to v2 to force the browser to update the worker!
+const CACHE_NAME = 'searing-pos-v2';
 const OFFLINE_URL = '/';
 
 const ASSETS_TO_CACHE = [
     '/',
-    '/static/css/custom.css',
-    // Add other critical static assets here
 ];
 
 self.addEventListener('install', (event) => {
@@ -21,6 +20,7 @@ self.addEventListener('activate', (event) => {
         caches.keys().then((cacheNames) => {
             return Promise.all(
                 cacheNames.map((cache) => {
+                    // Delete the old v1 cache
                     if (cache !== CACHE_NAME) {
                         return caches.delete(cache);
                     }
@@ -32,16 +32,24 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-    // Only handle GET requests for PWA caching
+    // 1. Ignore POST requests
     if (event.request.method !== 'GET') return;
 
+    // 2. CRITICAL FIX: Ignore Cross-Origin requests (Bootstrap CDNs, Google Fonts)
+    // Let the browser fetch them natively!
+    if (!event.request.url.startsWith(self.location.origin)) return;
+
+    // 3. Ignore API and Admin routes just to be safe
+    if (event.request.url.includes('/api/') || event.request.url.includes('/admin/')) return;
+
+    // For everything else, try the network first, then fall back to cache
     event.respondWith(
         fetch(event.request).catch(() => {
             return caches.match(event.request).then((response) => {
                 if (response) {
                     return response;
                 }
-                // If offline and request is for a webpage, return the cached root/offline page
+                // If offline and request is for a webpage, return the cached root
                 if (event.request.mode === 'navigate') {
                     return caches.match(OFFLINE_URL);
                 }
