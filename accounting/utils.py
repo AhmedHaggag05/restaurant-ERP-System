@@ -15,6 +15,7 @@ Default Chart of Accounts used:
   5300 - Employee Advances (Asset)
 """
 from decimal import Decimal
+from django.db.models import Sum
 from django.utils import timezone as _tz
 from .models import Account, JournalEntry, JournalLine
 
@@ -61,17 +62,15 @@ def post_sale_journal(order, user=None):
       CR  Inventory/Stock     (ingredient cost)
     """
     acc = _ensure_coa()
-    from core.views import _convert_to_stock_unit
 
     revenue = order.total_price
-    # Estimate COGS
-    cogs = Decimal('0')
-    for oi in order.items.select_related('menu_item').prefetch_related('menu_item__ingredients__ingredient').all():
-        if not oi.menu_item:
-            continue
-        for recipe in oi.menu_item.ingredients.all():
-            sq = _convert_to_stock_unit(recipe.quantity_required, recipe.recipe_unit, recipe.ingredient.unit)
-            cogs += sq * recipe.ingredient.cost_per_unit * oi.quantity
+    # Use the COGS value already snapshotted per line at the moment of sale
+    # (OrderItem.cogs_at_sale, set in core.views.create_order using the
+    # ingredient costs and stock actually deducted at that instant). Recomputing
+    # from ingredients' CURRENT cost_per_unit here would silently diverge from
+    # the real stock deduction whenever a restock changes ingredient cost, or a
+    # recipe is edited, between the sale and this journal posting.
+    cogs = order.items.aggregate(t=Sum('cogs_at_sale'))['t'] or Decimal('0')
 
     # Revenue entry
     je_rev = JournalEntry.objects.create(
@@ -169,24 +168,45 @@ def post_expense_journal(expense, user=None):
 
 def post_void_journal(order, user=None):
     """
-    When an order is voided — reverse the sale entry.
+    When an order is voided — reverse both the sale entry and the COGS entry,
+    mirroring core.views.void_order, which physically restores the ingredient
+    stock that was deducted at sale time.
       DR  Sales Revenue       (total_price)
       CR  Cash/Bank           (total_price)
+      DR  Inventory/Stock     (cogs_at_sale total)
+      CR  COGS                (cogs_at_sale total)
     """
     acc = _ensure_coa()
     amount = order.total_price
-    if amount <= 0:
-        return
-    je = JournalEntry.objects.create(
-        date=order.voided_at.date() if order.voided_at else order.created_at.date(),
-        description=f"VOID Order #{order.order_number}",
-        source='void', source_id=order.id,
-        created_by=user,
-    )
-    JournalLine.objects.bulk_create([
-        JournalLine(journal_entry=je, account=acc['4000'], side='debit',  amount=amount, description='Reversed sale'),
-        JournalLine(journal_entry=je, account=acc['1000'], side='credit', amount=amount, description='Reversed cash'),
-    ])
+    cogs = order.items.aggregate(t=Sum('cogs_at_sale'))['t'] or Decimal('0')
+    void_date = order.voided_at.date() if order.voided_at else order.created_at.date()
+
+    if amount > 0:
+        je = JournalEntry.objects.create(
+            date=void_date,
+            description=f"VOID Order #{order.order_number}",
+            source='void', source_id=order.id,
+            created_by=user,
+        )
+        JournalLine.objects.bulk_create([
+            JournalLine(journal_entry=je, account=acc['4000'], side='debit',  amount=amount, description='Reversed sale'),
+            JournalLine(journal_entry=je, account=acc['1000'], side='credit', amount=amount, description='Reversed cash'),
+        ])
+
+    if cogs > 0:
+        # Without this entry, the Inventory/Stock account balance would never
+        # reflect the ingredients void_order already restored to physical stock,
+        # and COGS would stay permanently overstated for a sale that no longer happened.
+        je_cogs = JournalEntry.objects.create(
+            date=void_date,
+            description=f"VOID COGS Order #{order.order_number}",
+            source='void', source_id=order.id,
+            created_by=user,
+        )
+        JournalLine.objects.bulk_create([
+            JournalLine(journal_entry=je_cogs, account=acc['1200'], side='debit',  amount=cogs, description='Stock restored'),
+            JournalLine(journal_entry=je_cogs, account=acc['5000'], side='credit', amount=cogs, description='Reversed COGS'),
+        ])
 
 
 def post_damage_journal(damage_records, order, user=None):

@@ -1,12 +1,46 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.db.models import Sum, Q
-from decimal import Decimal
+from django.db.models import Sum
+from decimal import Decimal, InvalidOperation
 from datetime import date
 
 from core.views import manager_required
 from .models import Account, JournalEntry, JournalLine
 from .utils import _ensure_coa
+
+
+def _bulk_account_balances(accounts, date_gte=None, date_lte=None):
+    """
+    Compute {account_id: balance} for a whole list of accounts in a single
+    grouped query, instead of running 2 separate debit/credit aggregate
+    queries per account (the previous pattern in chart_of_accounts,
+    profit_loss, and balance_sheet — an N+1 that scaled with the number of
+    accounts on every report page load).
+    """
+    if not accounts:
+        return {}
+    filters = {'account__in': accounts, 'journal_entry__is_posted': True}
+    if date_gte:
+        filters['journal_entry__date__gte'] = date_gte
+    if date_lte:
+        filters['journal_entry__date__lte'] = date_lte
+    rows = JournalLine.objects.filter(**filters).values(
+        'account_id', 'side'
+    ).annotate(total=Sum('amount'))
+
+    raw = {}
+    for row in rows:
+        d = raw.setdefault(row['account_id'], {'debit': Decimal('0'), 'credit': Decimal('0')})
+        d[row['side']] = row['total'] or Decimal('0')
+
+    balances = {}
+    for acc in accounts:
+        d = raw.get(acc.id, {'debit': Decimal('0'), 'credit': Decimal('0')})
+        if acc.account_type in ('asset', 'expense'):
+            balances[acc.id] = d['debit'] - d['credit']
+        else:
+            balances[acc.id] = d['credit'] - d['debit']
+    return balances
 
 
 # ── Chart of Accounts ─────────────────────────────────────────────────────
@@ -45,7 +79,11 @@ def chart_of_accounts(request):
             messages.success(request, "Default chart of accounts created.")
         return redirect('accounting:chart_of_accounts')
 
-    accounts = Account.objects.all()
+    accounts = list(Account.objects.all())
+    balances = _bulk_account_balances(accounts)
+    for acc in accounts:
+        acc.computed_balance = balances.get(acc.id, Decimal('0'))
+
     by_type = {}
     for acc in accounts:
         by_type.setdefault(acc.account_type, []).append(acc)
@@ -65,12 +103,22 @@ def journal(request):
     if request.method == 'POST':
         # Manual journal entry
         desc     = request.POST.get('description', '').strip()
-        je_date  = request.POST.get('date', date.today().isoformat())
+        je_date_str = request.POST.get('date', date.today().isoformat())
+        try:
+            je_date = date.fromisoformat(je_date_str)
+        except (TypeError, ValueError):
+            je_date = date.today()
         dr_account_id = request.POST.get('dr_account')
         cr_account_id = request.POST.get('cr_account')
-        amount   = Decimal(request.POST.get('amount', '0') or '0')
+        try:
+            amount = Decimal(request.POST.get('amount', '0') or '0')
+        except InvalidOperation:
+            amount = Decimal('0')
+
         if not desc or amount <= 0:
             messages.error(request, "Description and amount are required.")
+        elif not dr_account_id or not cr_account_id:
+            messages.error(request, "Both debit and credit accounts are required.")
         elif dr_account_id == cr_account_id:
             messages.error(request, "Debit and credit accounts must differ.")
         else:
@@ -115,39 +163,26 @@ def profit_loss(request):
     date_from = request.GET.get('date_from', today.replace(day=1).isoformat())
     date_to   = request.GET.get('date_to',   today.isoformat())
 
-    def account_balance_in_range(account_type, date_from, date_to):
-        lines = JournalLine.objects.filter(
-            account__account_type=account_type,
-            account__is_active=True,
-            journal_entry__date__gte=date_from,
-            journal_entry__date__lte=date_to,
-            journal_entry__is_posted=True,
-        )
-        if account_type in ('asset', 'expense'):
-            dr = lines.filter(side='debit').aggregate(t=Sum('amount'))['t'] or 0
-            cr = lines.filter(side='credit').aggregate(t=Sum('amount'))['t'] or 0
-            return dr - cr
-        else:
-            cr = lines.filter(side='credit').aggregate(t=Sum('amount'))['t'] or 0
-            dr = lines.filter(side='debit').aggregate(t=Sum('amount'))['t'] or 0
-            return cr - dr
+    rev_accounts = list(Account.objects.filter(account_type='revenue', is_active=True))
+    exp_accounts = list(Account.objects.filter(account_type='expense', is_active=True))
+    balances = _bulk_account_balances(
+        rev_accounts + exp_accounts, date_gte=date_from, date_lte=date_to
+    )
 
     # Revenue breakdown by account
-    rev_accounts = Account.objects.filter(account_type='revenue', is_active=True)
     revenue_lines = []
     total_revenue = Decimal('0')
     for acc in rev_accounts:
-        bal = _account_balance_range(acc, date_from, date_to)
+        bal = balances.get(acc.id, Decimal('0'))
         if bal != 0:
             revenue_lines.append({'account': acc, 'amount': bal})
             total_revenue += bal
 
     # Expense breakdown by account
-    exp_accounts = Account.objects.filter(account_type='expense', is_active=True)
     expense_lines = []
     total_expenses = Decimal('0')
     for acc in exp_accounts:
-        bal = _account_balance_range(acc, date_from, date_to)
+        bal = balances.get(acc.id, Decimal('0'))
         if bal != 0:
             expense_lines.append({'account': acc, 'amount': bal})
             total_expenses += bal
@@ -162,20 +197,6 @@ def profit_loss(request):
     })
 
 
-def _account_balance_range(account, date_from, date_to):
-    lines = JournalLine.objects.filter(
-        account=account,
-        journal_entry__date__gte=date_from,
-        journal_entry__date__lte=date_to,
-        journal_entry__is_posted=True,
-    )
-    dr = lines.filter(side='debit').aggregate(t=Sum('amount'))['t'] or Decimal('0')
-    cr = lines.filter(side='credit').aggregate(t=Sum('amount'))['t'] or Decimal('0')
-    if account.account_type in ('asset', 'expense'):
-        return dr - cr
-    return cr - dr
-
-
 # ── Balance Sheet ─────────────────────────────────────────────────────────
 
 @manager_required
@@ -183,25 +204,18 @@ def balance_sheet(request):
     today = date.today()
     as_of = request.GET.get('as_of', today.isoformat())
 
-    def get_balance_as_of(account, as_of_date):
-        lines = JournalLine.objects.filter(
-            account=account,
-            journal_entry__date__lte=as_of_date,
-            journal_entry__is_posted=True,
-        )
-        dr = lines.filter(side='debit').aggregate(t=Sum('amount'))['t'] or Decimal('0')
-        cr = lines.filter(side='credit').aggregate(t=Sum('amount'))['t'] or Decimal('0')
-        if account.account_type in ('asset', 'expense'):
-            return dr - cr
-        return cr - dr
+    all_accounts = list(
+        Account.objects.filter(account_type__in=['asset', 'liability', 'equity'], is_active=True)
+    )
+    balances = _bulk_account_balances(all_accounts, date_lte=as_of)
 
     sections = {}
     for atype in ['asset', 'liability', 'equity']:
-        accs = Account.objects.filter(account_type=atype, is_active=True)
+        accs = [a for a in all_accounts if a.account_type == atype]
         lines = []
         total = Decimal('0')
         for acc in accs:
-            bal = get_balance_as_of(acc, as_of)
+            bal = balances.get(acc.id, Decimal('0'))
             if bal != 0:
                 lines.append({'account': acc, 'amount': bal})
                 total += bal

@@ -32,7 +32,8 @@ DEBUG = os.getenv("DJANGO_DEBUG", "false").lower() == "true"
 # ── Allowed hosts ──────────────────────────────────────────────────────────
 _raw_hosts = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1")
 ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(",") if h.strip()]
-_render_host = os.getenv("https://restaurant-erp-live.onrender.com", "")
+# Render sets RENDER_EXTERNAL_HOSTNAME automatically on every deploy; add it if present.
+_render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
 if _render_host and _render_host not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(_render_host)
 
@@ -79,8 +80,6 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rest_framework',
-    'rest_framework_simplejwt',
     'core',
     'hr',
     'purchasing',
@@ -248,40 +247,4 @@ LOGGING = {
             'propagate': False,
         },
     },
-}
-from datetime import timedelta
-
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        # 1. Mobile App Authentication (Checks for 'Authorization: Bearer <token>')
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-
-        # 2. Existing Web App Authentication (Checks for session cookies)
-        # CRITICAL: Keeping this ensures we don't break the existing web ERP.
-        'rest_framework.authentication.SessionAuthentication',
-    ],
-    # Secure by default: Require authentication for all API endpoints unless explicitly overridden
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
-    ],
-# --- PHASE 5 ADDITIONS ---
-    'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle'
-    ],
-    'DEFAULT_THROTTLE_RATES': {
-        'anon': '5/minute',   # Max 5 failed login attempts per minute for unauthenticated IPs
-        'user': '120/minute'  # Max 120 API requests per minute for logged-in employees
-    }
-}
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),  # Short-lived access token
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),  # Long-lived refresh token
-    'ROTATE_REFRESH_TOKENS': True,  # Issue a new refresh token when refreshing
-    'BLACKLIST_AFTER_ROTATION': False,  # Requires rest_framework_simplejwt.token_blacklist if True
-    'AUTH_HEADER_TYPES': ('Bearer',),  # Mobile will send: "Authorization: Bearer <token>"
-    'USER_ID_FIELD': 'id',
-    'USER_ID_CLAIM': 'user_id',
-    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }

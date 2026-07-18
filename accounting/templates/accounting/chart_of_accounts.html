@@ -51,7 +51,7 @@
                 {% if acc.description %}<br><small class="text-muted">{{ acc.description }}</small>{% endif %}
             </td>
             <td class="text-capitalize">{{ acc.account_type }}</td>
-            <td class="text-end fw-bold">{{ acc.balance|floatformat:2 }}</td>
+            <td class="text-end fw-bold">{{ acc.computed_balance|floatformat:2 }}</td>
             <td>{% if acc.is_active %}<span class="status-badge status-paid">Active</span>{% else %}<span class="status-badge status-cancelled">Inactive</span>{% endif %}</td>
             <td>
                 {% if not acc.is_system %}
