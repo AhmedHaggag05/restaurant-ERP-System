@@ -753,7 +753,7 @@ def manage_users(request):
             errors.append("Username is required.")
         if not password:
             errors.append("Password is required.")
-        elif len(password) < 10:
+        elif len(password) < 8:
             errors.append("Password must be at least 10 characters.")
         elif password != password2:
             errors.append("Passwords do not match.")
@@ -819,7 +819,7 @@ def edit_user(request, user_id):
             elif not target.check_password(old_password):
                 errors.append("Current password is incorrect.")
                 _record_attempt(request, 'login')
-            elif len(new_password) < 10:
+            elif len(new_password) < 8:
                 errors.append("New password must be at least 10 characters.")
             elif new_password != new_password2:
                 errors.append("New passwords do not match.")
