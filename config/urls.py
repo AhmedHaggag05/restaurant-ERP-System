@@ -19,7 +19,6 @@ from django.urls import include, path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import TemplateView # <-- ADD THIS IMPORT
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 handler400 = 'core.views.handler_400'
 handler403 = 'core.views.handler_403'
@@ -42,10 +41,6 @@ urlpatterns = [
         template_name='sw.js',
         content_type='application/javascript'
     ), name='sw'),
-# --- PHASE 4: MOBILE API LAYER ---
-    path('api/mobile/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/mobile/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('api/mobile/', include('core.api_urls')),
 ]
 
 if settings.DEBUG:
