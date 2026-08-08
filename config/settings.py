@@ -146,8 +146,8 @@ if not DEBUG:
 # ── Cache (for rate limiting) ──────────────────────────────────────────────
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'searing-sandwiches',
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'searing_sandwiches_cache',
     }
 }
 
