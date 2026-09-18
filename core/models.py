@@ -111,6 +111,8 @@ class Expense(models.Model):
     amount      = models.DecimalField(max_digits=10, decimal_places=2)
     date        = models.DateField(default=timezone.now)
     notes       = models.TextField(blank=True)
+    is_voided   = models.BooleanField(default=False)
+    voided_at   = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.title} — {self.amount} EGP"
@@ -178,6 +180,8 @@ class OrderItem(models.Model):
     # COGS snapshotted at sale time — total cost for this line (qty × unit_cogs)
     # Ensures historical reports stay accurate even after ingredient cost changes
     cogs_at_sale = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    # Existing rows predate ingredient snapshots and must not be quantity-edited.
+    stock_snapshot_ready = models.BooleanField(default=False)
 
     objects = _SafeOrderItemManager()
 
@@ -186,6 +190,17 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.quantity} x {self.menu_item.name}"
+
+
+class OrderItemConsumption(models.Model):
+    """Actual stock consumed by an order line, independent of later recipe edits."""
+    order_item = models.ForeignKey(OrderItem, related_name='consumptions', on_delete=models.CASCADE)
+    ingredient = models.ForeignKey(Ingredient, on_delete=models.PROTECT)
+    quantity_consumed = models.DecimalField(max_digits=12, decimal_places=3)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['order_item', 'ingredient'], name='unique_order_item_ingredient_consumption')]
 
 
 class Employee(models.Model):

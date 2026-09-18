@@ -70,7 +70,7 @@ def post_sale_journal(order, user=None):
     # from ingredients' CURRENT cost_per_unit here would silently diverge from
     # the real stock deduction whenever a restock changes ingredient cost, or a
     # recipe is edited, between the sale and this journal posting.
-    cogs = order.items.aggregate(t=Sum('cogs_at_sale'))['t'] or Decimal('0')
+    cogs = (order.items.aggregate(t=Sum('cogs_at_sale'))['t'] or Decimal('0')).quantize(Decimal('0.01'))
 
     # Revenue entry
     je_rev = JournalEntry.objects.create(
@@ -97,14 +97,38 @@ def post_sale_journal(order, user=None):
         ])
 
 
-def post_purchase_journal(po, user=None):
+def post_order_adjustment_journal(order, revenue_delta, cogs_delta, user=None):
+    """Post the financial difference caused by editing an existing order."""
+    acc = _ensure_coa()
+    for amount, debit, credit, label in (
+        (revenue_delta, '1000', '4000', 'Revenue'),
+        (cogs_delta, '5000', '1200', 'COGS'),
+    ):
+        amount = Decimal(amount).quantize(Decimal('0.01'))
+        if amount == 0:
+            continue
+        if amount < 0:
+            debit, credit = credit, debit
+            amount = -amount
+        entry = JournalEntry.objects.create(
+            date=_get_today(),
+            description=f"{label} adjustment for Order #{order.order_number}",
+            source='adjustment', source_id=order.id, created_by=user,
+        )
+        JournalLine.objects.bulk_create([
+            JournalLine(journal_entry=entry, account=acc[debit], side='debit', amount=amount),
+            JournalLine(journal_entry=entry, account=acc[credit], side='credit', amount=amount),
+        ])
+
+
+def post_purchase_journal(po, user=None, amount=None):
     """
     When a PO is received:
       DR  Inventory/Stock     (total_amount)
       CR  Accounts Payable    (total_amount)
     """
     acc = _ensure_coa()
-    amount = po.total_amount
+    amount = po.total_amount if amount is None else amount
     if amount <= 0:
         return
     je = JournalEntry.objects.create(
@@ -122,15 +146,19 @@ def post_purchase_journal(po, user=None):
 def post_payroll_journal(salary_run, user=None):
     """
     When payroll is paid:
-      DR  Payroll Expense     (total_gross)
+      DR  Payroll Expense     (gross less salary reductions / penalties)
       CR  Cash/Bank           (total_net)
       CR  Employee Advances   (total advances deducted)
     """
     acc = _ensure_coa()
     gross    = salary_run.total_gross
+    deductions = salary_run.total_deductions
     advances = sum(l.advances for l in salary_run.lines.all())
     net      = salary_run.total_net
-    if gross <= 0:
+    expense = gross - deductions
+    if expense != net + advances or min(gross, deductions, advances, net) < 0:
+        raise ValueError('Payroll totals are inconsistent; no journal was posted.')
+    if expense <= 0:
         return
     je = JournalEntry.objects.create(
         date=salary_run.run_date,
@@ -139,7 +167,7 @@ def post_payroll_journal(salary_run, user=None):
         created_by=user,
     )
     lines = [
-        JournalLine(journal_entry=je, account=acc['5100'], side='debit', amount=gross, description='Gross payroll'),
+        JournalLine(journal_entry=je, account=acc['5100'], side='debit', amount=expense, description='Payroll after salary reductions'),
         JournalLine(journal_entry=je, account=acc['1000'], side='credit', amount=net,   description='Net salaries paid'),
     ]
     if advances > 0:
@@ -166,6 +194,19 @@ def post_expense_journal(expense, user=None):
     ])
 
 
+def post_expense_void_journal(expense, user=None):
+    """Reverse a recorded expense without erasing its audit trail."""
+    acc = _ensure_coa()
+    entry = JournalEntry.objects.create(
+        date=_get_today(), description=f"VOID Expense: {expense.title}",
+        source='expense', source_id=expense.id, created_by=user,
+    )
+    JournalLine.objects.bulk_create([
+        JournalLine(journal_entry=entry, account=acc['1000'], side='debit', amount=expense.amount, description='Expense reversed'),
+        JournalLine(journal_entry=entry, account=acc['5200'], side='credit', amount=expense.amount, description='Expense reversed'),
+    ])
+
+
 def post_void_journal(order, user=None):
     """
     When an order is voided — reverse both the sale entry and the COGS entry,
@@ -178,7 +219,7 @@ def post_void_journal(order, user=None):
     """
     acc = _ensure_coa()
     amount = order.total_price
-    cogs = order.items.aggregate(t=Sum('cogs_at_sale'))['t'] or Decimal('0')
+    cogs = (order.items.aggregate(t=Sum('cogs_at_sale'))['t'] or Decimal('0')).quantize(Decimal('0.01'))
     void_date = order.voided_at.date() if order.voided_at else order.created_at.date()
 
     if amount > 0:

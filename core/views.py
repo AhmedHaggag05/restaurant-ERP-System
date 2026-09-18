@@ -1,13 +1,12 @@
 from django.shortcuts import render, get_object_or_404, redirect
-from django.urls import reverse
 from django.http import JsonResponse
 from django.db import transaction
 from django.db.models import Sum, F, Count
 from django.utils import timezone
 from django.contrib import messages
-from django.contrib.auth import login, logout, authenticate
+from django.contrib.auth import login, logout
 from django.contrib.auth.forms import AuthenticationForm
-from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.decorators import user_passes_test
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.paginator import Paginator
@@ -22,7 +21,7 @@ from decimal import Decimal, InvalidOperation
 from .models import (
     Ingredient, MenuItem, MenuItemIngredient, Order, OrderItem,
     UserProfile, Employee, PromoCode, Expense, MenuCategory,
-    StockLog, CostHistory, ActivityLog, DamagedStock,
+    StockLog, CostHistory, ActivityLog, DamagedStock, OrderItemConsumption,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,7 +111,8 @@ def _convert_to_stock_unit(qty, recipe_unit, stock_unit):
 
 
 def _log_stock(ingredient, qty_change, reason, user=None, note=''):
-    before = ingredient.stock_quantity
+    # Callers persist the new stock quantity before recording the change.
+    before = ingredient.stock_quantity - qty_change
     StockLog.objects.create(
         ingredient=ingredient,
         changed_by=user,
@@ -331,14 +331,20 @@ def create_order(request):
 
             for item in cart:
                 menu_item = menu_items_map.get(int(item["id"]))
-                if not menu_item:
+                if not menu_item or not menu_item.is_active:
                     raise ValueError("Menu item not found")
                 quantity = int(item["quantity"])
                 cogs_unit = Decimal('0')
+                consumed = {}
                 for recipe_item in menu_item.ingredients.all():
                     recipe_qty = recipe_item.quantity_required * quantity
                     required_qty = _convert_to_stock_unit(
-                        recipe_qty, recipe_item.recipe_unit, recipe_item.ingredient.unit)
+                        recipe_qty, recipe_item.recipe_unit, recipe_item.ingredient.unit
+                    ).quantize(Decimal('0.001'))
+                    if required_qty < 0:
+                        raise ValueError('Recipe quantities must not be negative.')
+                    if required_qty == 0:
+                        continue
                     ingredient = Ingredient.objects.select_for_update().get(
                         id=recipe_item.ingredient.id)
                     cogs_unit += required_qty * ingredient.cost_per_unit
@@ -346,15 +352,21 @@ def create_order(request):
                         raise ValueError(f"Insufficient stock for {ingredient.name}")
                     ingredient.stock_quantity -= required_qty
                     ingredient.save()
+                    consumed[ingredient.id] = consumed.get(ingredient.id, Decimal('0')) + required_qty
                     _log_stock(ingredient, -required_qty, 'sale', request.user,
                                note=f'Order {order.order_number}')
                     if ingredient.stock_quantity <= ingredient.low_stock_threshold:
-                        _send_low_stock_alert(ingredient)
-                OrderItem.objects.create(
+                        transaction.on_commit(lambda ing=ingredient: _send_low_stock_alert(ing))
+                order_item = OrderItem.objects.create(
                     order=order, menu_item=menu_item,
                     quantity=quantity, price_at_order=menu_item.price,
-                    cogs_at_sale=cogs_unit,
+                    cogs_at_sale=cogs_unit, stock_snapshot_ready=True,
                 )
+                OrderItemConsumption.objects.bulk_create([
+                    OrderItemConsumption(order_item=order_item, ingredient_id=ing_id,
+                                         quantity_consumed=consumed_qty)
+                    for ing_id, consumed_qty in consumed.items()
+                ])
                 subtotal += menu_item.price * quantity
 
             if promo_obj:
@@ -380,15 +392,8 @@ def create_order(request):
 
             order.total_price = subtotal - discount_amount
             order.save()
-
-        journal_posted = True
-        try:
             from accounting.utils import post_sale_journal
             post_sale_journal(order, request.user)
-        except Exception:
-            journal_posted = False
-            logger.exception(
-                "Failed to post sale journal for order %s", order.order_number)
 
         _log(request, 'place_order', order.order_number,
              detail=f"total={float(order.total_price):.2f} EGP, {len(cart)} item(s)")
@@ -399,11 +404,6 @@ def create_order(request):
             "discount": float(discount_amount),
             "total": float(order.total_price),
         }
-        if not journal_posted:
-            response["warning"] = (
-                "Order placed, but the accounting journal entry failed to post "
-                "automatically. Please check the Accounting module."
-            )
         return JsonResponse(response)
 
     except ValueError as e:
@@ -507,7 +507,7 @@ def dashboard_view(request):
         (e.salary for e in Employee.objects.filter(is_active=True)), Decimal('0'))
     monthly_expenses = sum(
         (e.amount for e in Expense.objects.filter(
-            date__month=timezone.now().month, date__year=timezone.now().year
+            is_voided=False, date__month=timezone.now().month, date__year=timezone.now().year
         )), Decimal('0'))
     fixed_costs = monthly_payroll + monthly_expenses
 
@@ -672,7 +672,7 @@ def sales_report(request):
     else:
         period_payroll = monthly_payroll
 
-    expenses_qs = Expense.objects.all()
+    expenses_qs = Expense.objects.filter(is_voided=False)
     if date_from_str:
         try:
             expenses_qs = expenses_qs.filter(
@@ -1014,33 +1014,39 @@ def manual_stock_adjust(request):
             messages.error(request, 'Please enter a quantity.')
             return redirect('dashboard')
         qty = Decimal(raw_qty)
-        if qty < 0:
+        if not qty.is_finite() or qty < 0 or qty.as_tuple().exponent < -3:
             messages.error(request, 'Quantity must be positive.')
             return redirect('dashboard')
+        with transaction.atomic():
+            ingredient = Ingredient.objects.select_for_update().get(pk=ingredient.pk)
+            old_qty = ingredient.stock_quantity
+            if action_type == 'add':
+                change = qty
+                ingredient.stock_quantity = old_qty + qty
+                verb = f'+{qty}'
+            elif action_type == 'subtract':
+                if qty > old_qty:
+                    raise ValueError('Cannot subtract more than available stock.')
+                change = -qty
+                ingredient.stock_quantity = old_qty - qty
+                verb = f'-{qty}'
+            else:
+                change = qty - old_qty
+                ingredient.stock_quantity = qty
+                verb = f'set to {qty}'
 
-        old_qty = ingredient.stock_quantity
-        if action_type == 'add':
-            change = qty
-            ingredient.stock_quantity = old_qty + qty
-            verb = f'+{qty}'
-        elif action_type == 'subtract':
-            change = -qty
-            ingredient.stock_quantity = max(Decimal('0'), old_qty - qty)
-            verb = f'-{qty}'
-        else:
-            change = qty - old_qty
-            ingredient.stock_quantity = qty
-            verb = f'set to {qty}'
-
-        ingredient.save()
-        _log_stock(ingredient, change, 'manual', request.user,
-                   note=note or f'Manual adjustment: {verb}')
+            ingredient.save(update_fields=['stock_quantity'])
+            _log_stock(ingredient, change, 'manual', request.user,
+                       note=note or f'Manual adjustment: {verb}')
         _log(request, 'edit_ingredient', ingredient.name,
              detail=f'Manual stock adjustment: {verb} {ingredient.unit}. Note: {note}')
         messages.success(request,
                          f"Stock for '{ingredient.name}' updated: {verb} {ingredient.unit}. "
                          f"New stock: {ingredient.stock_quantity} {ingredient.unit}.")
-    except (ValueError, Exception):
+    except (ValueError, InvalidOperation) as exc:
+        messages.error(request, str(exc))
+    except Exception:
+        logger.exception('Error adjusting stock')
         messages.error(request, 'Error adjusting stock.')
 
     return redirect('dashboard')
@@ -1486,14 +1492,8 @@ def delete_menu_item(request, pk):
 def delete_order(request, order_id):
     if request.method != 'POST':
         return redirect('dashboard')
-    order = get_object_or_404(Order, id=order_id)
-    order_number = order.order_number
-    try:
-        order.delete()
-        _log(request, 'delete_order', order_number)
-        messages.success(request, f"Order #{order_number} deleted.")
-    except Exception:
-        messages.error(request, f"Could not delete order #{order_number}.")
+    get_object_or_404(Order, id=order_id)
+    messages.error(request, 'Orders with stock and journal history cannot be deleted. Void the order with a reason instead.')
     return redirect('dashboard')
 
 
@@ -1505,107 +1505,27 @@ def delete_order(request, order_id):
 def edit_order(request, order_id):
     order = get_object_or_404(Order, id=order_id)
     if order.status == 'voided':
-        messages.error(request, "Cannot edit a voided order.")
+        messages.error(request, 'Cannot edit a voided order.')
         return redirect('dashboard')
-
     if request.method == 'POST':
-        with transaction.atomic():
-            changes = []
-            new_table = str(request.POST.get('table_number', '')).strip()[:10]
-            new_notes = str(request.POST.get('customer_notes', '')).strip()[:500]
-            if new_table != order.table_number:
-                changes.append(f"table: '{order.table_number}'→'{new_table}'")
-                order.table_number = new_table
-            if new_notes != order.customer_notes:
-                changes.append("notes updated")
-                order.customer_notes = new_notes
-
-            new_total = Decimal('0')
-            for oi in list(order.items.all()):
-                key = f'qty_{oi.id}'
-                if key not in request.POST:
-                    continue
-                new_qty_raw = request.POST.get(key, '').strip()
-
-                if new_qty_raw == '0' or new_qty_raw == '':
-                    item_name = oi.menu_item.name if oi.menu_item else '[deleted]'
-                    old_qty = oi.quantity
-                    if oi.menu_item:
-                        for recipe in oi.menu_item.ingredients.all():
-                            restore = _convert_to_stock_unit(
-                                recipe.quantity_required * old_qty,
-                                recipe.recipe_unit, recipe.ingredient.unit)
-                            ing = Ingredient.objects.select_for_update().get(
-                                id=recipe.ingredient.id)
-                            ing.stock_quantity += restore
-                            ing.save()
-                            _log_stock(ing, restore, 'edit', request.user,
-                                       note=f'Order edit — removed {item_name} from {order.order_number}')
-                    changes.append(f"removed '{item_name}' (was ×{old_qty})")
-                    oi.delete()
-                    continue
-
-                try:
-                    new_qty = int(new_qty_raw)
-                    if new_qty < 0 or new_qty > 99:
-                        continue
-                except ValueError:
-                    continue
-
-                if new_qty == oi.quantity:
-                    new_total += oi.price_at_order * oi.quantity
-                    continue
-
-                item_name = oi.menu_item.name if oi.menu_item else '[deleted]'
-                qty_diff = new_qty - oi.quantity
-
-                if oi.menu_item and qty_diff != 0:
-                    for recipe in oi.menu_item.ingredients.all():
-                        stock_diff = _convert_to_stock_unit(
-                            recipe.quantity_required * abs(qty_diff),
-                            recipe.recipe_unit, recipe.ingredient.unit)
-                        ing = Ingredient.objects.select_for_update().get(
-                            id=recipe.ingredient.id)
-                        if qty_diff > 0:
-                            ing.stock_quantity -= stock_diff
-                        else:
-                            ing.stock_quantity += stock_diff
-                        ing.save()
-                        _log_stock(ing, stock_diff if qty_diff < 0 else -stock_diff, 'edit',
-                                   request.user,
-                                   note=f'Order edit — {item_name} ×{oi.quantity}→×{new_qty} ({order.order_number})')
-
-                changes.append(f"'{item_name}' qty ×{oi.quantity}→×{new_qty}")
-                oi.quantity = new_qty
-                if oi.menu_item:
-                    try:
-                        new_cogs = Decimal('0')
-                        for recipe in oi.menu_item.ingredients.all():
-                            sq = _convert_to_stock_unit(
-                                recipe.quantity_required * new_qty,
-                                recipe.recipe_unit, recipe.ingredient.unit)
-                            new_cogs += sq * recipe.ingredient.cost_per_unit
-                        oi.cogs_at_sale = new_cogs
-                    except Exception:
-                        pass
-                oi.save()
-                new_total += oi.price_at_order * new_qty
-
-            order.total_price = max(Decimal('0'), new_total - order.discount_amount)
-            order.save()
-
-            if changes:
-                detail_str = '; '.join(changes)
-                _log(request, 'edit_order', order.order_number, detail=detail_str)
-                messages.success(request, f"Order #{order.order_number} updated.")
-            else:
-                messages.info(request, "No changes were made.")
-
+        try:
+            from .order_integrity import edit_existing_order
+            order, changes = edit_existing_order(order_id, request.POST, request.user)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect('edit_order', order_id=order_id)
+        except Exception:
+            logger.exception('Failed to edit order %s', order_id)
+            messages.error(request, 'Order could not be updated. No changes were saved.')
+            return redirect('edit_order', order_id=order_id)
+        if changes:
+            _log(request, 'edit_order', order.order_number, detail='; '.join(changes))
+            messages.success(request, f'Order #{order.order_number} updated.')
+        else:
+            messages.info(request, 'No changes were made.')
         return redirect('dashboard')
-
     items = order.items.select_related('menu_item').all()
     return render(request, 'core/edit_order.html', {'order': order, 'items': items})
-
 
 @manager_required
 def log_damage(request, order_id):
@@ -1659,8 +1579,17 @@ def log_damage(request, order_id):
                 qty = data['qty']
                 ing = Ingredient.objects.select_for_update().get(id=ing_id)
                 unit_cost_snapshot = ing.cost_per_unit
+                if not qty.is_finite() or qty <= 0 or qty > ing.stock_quantity:
+                    transaction.set_rollback(True)
+                    messages.error(request, f'Insufficient or invalid stock for {ing.name}. No damage was recorded.')
+                    return redirect('dashboard')
+                qty = qty.quantize(Decimal('0.001'))
+                if qty == 0:
+                    transaction.set_rollback(True)
+                    messages.error(request, f'Damage quantity for {ing.name} is below stock precision.')
+                    return redirect('dashboard')
 
-                ing.stock_quantity = max(Decimal('0'), ing.stock_quantity - qty)
+                ing.stock_quantity -= qty
                 ing.save()
 
                 DamagedStock.objects.create(
@@ -1687,6 +1616,7 @@ def log_damage(request, order_id):
                     journal_posted = False
                     logger.exception(
                         "Failed to post damage journal for order %s", order.order_number)
+                    transaction.set_rollback(True)
                 _log(request, 'log_damage', order.order_number,
                      detail=f"Damage logged from order {order.order_number}")
                 total_loss = sum(r['qty_damaged'] * r['unit_cost'] for r in journal_records)
@@ -1695,10 +1625,7 @@ def log_damage(request, order_id):
                                      f"Damage logged for order #{order.order_number}. "
                                      f"Stock deducted and {float(total_loss):.2f} EGP posted to journal.")
                 else:
-                    messages.warning(request,
-                                     f"Damage logged for order #{order.order_number} and stock deducted, "
-                                     f"but the accounting journal entry failed to post automatically. "
-                                     f"Please check the Accounting module.")
+                    messages.error(request, 'Damage could not be recorded. No changes were saved.')
             else:
                 messages.warning(request, "No ingredients selected for damage.")
 
@@ -1776,47 +1703,25 @@ def damaged_stock_view(request):
 @manager_required
 def void_order(request, order_id):
     order = get_object_or_404(Order, id=order_id)
-    if order.status == 'voided':
-        messages.error(request, f"Order #{order.order_number} is already voided.")
-        return redirect(request.META.get('HTTP_REFERER') or reverse('dashboard'))
-    if request.method == 'POST':
-        reason = str(request.POST.get('void_reason', ''))[:200].strip()
-        if not reason:
-            messages.error(request, 'A reason is required to void an order.')
-            return redirect(request.META.get('HTTP_REFERER') or reverse('dashboard'))
-        with transaction.atomic():
-            for oi in order.items.all():
-                if not oi.menu_item: continue
-                for recipe in oi.menu_item.ingredients.all():
-                    restored = _convert_to_stock_unit(
-                        recipe.quantity_required * oi.quantity,
-                        recipe.recipe_unit, recipe.ingredient.unit)
-                    ing = Ingredient.objects.select_for_update().get(id=recipe.ingredient.id)
-                    ing.stock_quantity += restored
-                    ing.save()
-                    _log_stock(ing, restored, 'void', request.user,
-                               note=f'Void order {order.order_number}')
-            order.status = 'voided'
-            order.voided_at = timezone.now()
-            order.voided_by = request.user
-            order.void_reason = reason
-            order.save()
-            try:
-                from accounting.utils import post_void_journal
-                post_void_journal(order, request.user)
-            except Exception:
-                logger.exception(
-                    "Failed to post void journal for order %s", order.order_number)
-                messages.warning(
-                    request,
-                    "Order voided and stock restored, but the accounting reversal "
-                    "failed to post automatically. Please check the Accounting module."
-                )
-        messages.success(request, f"Order #{order.order_number} voided. Stock restored.")
-        _log(request, 'void_order', order.order_number, detail=f"reason={reason}")
-        return redirect(request.META.get('HTTP_REFERER') or reverse('dashboard'))
+    if request.method != 'POST':
+        return redirect('dashboard')
+    reason = str(request.POST.get('void_reason', '')).strip()[:200]
+    if not reason:
+        messages.error(request, 'A reason is required to void an order.')
+        return redirect('dashboard')
+    try:
+        from .order_integrity import void_existing_order
+        order = void_existing_order(order_id, reason, request.user)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect('dashboard')
+    except Exception:
+        logger.exception('Failed to void order %s', order_id)
+        messages.error(request, 'Order could not be voided. No changes were saved.')
+        return redirect('dashboard')
+    _log(request, 'void_order', order.order_number, detail=f'reason={reason}')
+    messages.success(request, f'Order #{order.order_number} voided. Stock and accounting were reversed.')
     return redirect('dashboard')
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  EMPLOYEE MANAGEMENT
@@ -1950,7 +1855,7 @@ def delete_promo(request, promo_id):
 
 @manager_required
 def manage_expenses(request):
-    expenses = Expense.objects.all().order_by('-date')
+    expenses = Expense.objects.filter(is_voided=False).order_by('-date')
     total = sum(e.amount for e in expenses)
     return render(request, 'core/manage_expenses.html', {
         'expenses': expenses, 'total': total,
@@ -1971,7 +1876,7 @@ def add_expense(request):
         except InvalidOperation:
             messages.error(request, "Expense amount must be a valid number.")
             return redirect('manage_expenses')
-        if amount <= 0:
+        if not amount.is_finite() or amount <= 0 or amount.as_tuple().exponent < -2:
             messages.error(request, "Expense amount must be greater than zero.")
             return redirect('manage_expenses')
         date_str = request.POST.get('date', '')
@@ -1982,28 +1887,20 @@ def add_expense(request):
         notes = str(request.POST.get('notes', '')).strip()[:1000]
 
         if title:
-            exp = Expense.objects.create(
-                title=title, category=category,
-                amount=amount,
-                date=exp_date,
-                notes=notes,
-            )
-            journal_posted = True
             try:
                 from accounting.utils import post_expense_journal
-                post_expense_journal(exp, request.user)
+                with transaction.atomic():
+                    exp = Expense.objects.create(
+                        title=title, category=category, amount=amount,
+                        date=exp_date, notes=notes,
+                    )
+                    post_expense_journal(exp, request.user)
             except Exception:
-                journal_posted = False
-                logger.exception("Failed to post expense journal for expense %s", exp.pk)
-            _log(request, 'add_expense', title, detail=f"amount={amount} cat={category}")
-            if journal_posted:
-                messages.success(request, f"Expense '{title}' recorded.")
+                logger.exception("Failed to record expense and journal")
+                messages.error(request, 'Expense could not be recorded. No changes were saved.')
             else:
-                messages.warning(
-                    request,
-                    f"Expense '{title}' recorded, but the accounting journal entry "
-                    f"failed to post automatically. Please check the Accounting module."
-                )
+                _log(request, 'add_expense', title, detail=f"amount={amount} cat={category}")
+                messages.success(request, f"Expense '{title}' recorded.")
         else:
             messages.error(request, "Title is required.")
 
@@ -2012,27 +1909,48 @@ def add_expense(request):
 
 @manager_required
 def edit_expense(request, expense_id):
-    exp = get_object_or_404(Expense, id=expense_id)
     if request.method == 'POST':
-        exp.title = str(request.POST.get('title', exp.title)).strip()[:150]
-        category = request.POST.get('category', exp.category)
-        exp.category = category if category in dict(Expense.CATEGORY_CHOICES) else exp.category
-        exp.amount = Decimal(request.POST.get('amount', str(exp.amount)) or '0')
-        date_str = request.POST.get('date', '')
-        if date_str: exp.date = date_str
-        exp.notes = str(request.POST.get('notes', exp.notes)).strip()[:1000]
-        exp.save()
-        _log(request, 'edit_expense', exp.title, detail=f"amount={exp.amount}")
-        messages.success(request, f"Expense '{exp.title}' updated.")
+        with transaction.atomic():
+            exp = get_object_or_404(Expense.objects.select_for_update(), id=expense_id, is_voided=False)
+            if (request.POST.get('amount', str(exp.amount)) != str(exp.amount)
+                    or request.POST.get('date', exp.date.isoformat()) != exp.date.isoformat()):
+                messages.error(request, 'Recorded expense amount and date cannot be changed. Void and re-enter it instead.')
+                return redirect('manage_expenses')
+            title = str(request.POST.get('title', '')).strip()[:150]
+            if not title:
+                messages.error(request, 'Title is required.')
+                return redirect('manage_expenses')
+            exp.title = title
+            category = request.POST.get('category', exp.category)
+            exp.category = category if category in dict(Expense.CATEGORY_CHOICES) else exp.category
+            exp.notes = str(request.POST.get('notes', exp.notes)).strip()[:1000]
+            exp.save(update_fields=['title', 'category', 'notes'])
+            _log(request, 'edit_expense', exp.title, detail=f"amount={exp.amount}")
+            messages.success(request, f"Expense '{exp.title}' updated.")
     return redirect('manage_expenses')
 
 
 @manager_required
 def delete_expense(request, expense_id):
-    exp = get_object_or_404(Expense, id=expense_id)
-    _log(request, 'delete_expense', exp.title, detail=f"amount={exp.amount}")
-    exp.delete()
-    messages.success(request, "Expense deleted.")
+    if request.method != 'POST':
+        return redirect('manage_expenses')
+    try:
+        with transaction.atomic():
+            exp = get_object_or_404(Expense.objects.select_for_update(), id=expense_id, is_voided=False)
+            from accounting.models import JournalEntry
+            from accounting.utils import post_expense_void_journal
+            if JournalEntry.objects.filter(source='expense', source_id=exp.pk,
+                                           description__startswith='Expense:').exists():
+                post_expense_void_journal(exp, request.user)
+            exp.is_voided = True
+            exp.voided_at = timezone.now()
+            exp.save(update_fields=['is_voided', 'voided_at'])
+    except Exception:
+        logger.exception('Failed to void expense %s', expense_id)
+        messages.error(request, 'Expense could not be voided. No changes were saved.')
+    else:
+        _log(request, 'delete_expense', exp.title, detail=f"voided amount={exp.amount}")
+        messages.success(request, "Expense voided.")
     return redirect('manage_expenses')
 
 
@@ -2065,7 +1983,7 @@ def shift_report(request):
             item_summary[name]['qty'] += oi.quantity
             item_summary[name]['revenue'] += oi.price_at_order * oi.quantity
 
-    day_expenses = Expense.objects.filter(date=report_date)
+    day_expenses = Expense.objects.filter(date=report_date, is_voided=False)
     total_expenses = sum(e.amount for e in day_expenses)
 
     monthly_payroll = sum((e.salary for e in Employee.objects.filter(is_active=True)), Decimal('0'))
@@ -2116,7 +2034,7 @@ def shift_report_pdf(request):
             item_summary[name]['qty'] += oi.quantity
             item_summary[name]['revenue'] += oi.price_at_order * oi.quantity
 
-    day_expenses = Expense.objects.filter(date=report_date)
+    day_expenses = Expense.objects.filter(date=report_date, is_voided=False)
     total_expenses = sum(e.amount for e in day_expenses)
     monthly_payroll = sum((e.salary for e in Employee.objects.filter(is_active=True)), Decimal('0'))
     daily_payroll = (monthly_payroll / 30).quantize(Decimal('0.01'))
@@ -2789,7 +2707,7 @@ def export_full_backup(request):
            ['ID', 'Date', 'Title', 'Category', 'Amount EGP', 'Notes'],
            [(e.id, str(e.date), e.title, e.get_category_display(),
              float(e.amount), e.notes)
-            for e in Expense.objects.order_by('-date')])
+            for e in Expense.objects.filter(is_voided=False).order_by('-date')])
 
     _sheet('Employees',
            ['ID', 'Full Name', 'Job', 'Phone', 'Salary EGP', 'Active', 'Hire Date'],

@@ -236,7 +236,7 @@ def _build_finance_general(df, dt):
             total_rev  += oi.price_at_order * qty
             total_cogs += cogs_unit * qty
 
-    expenses_qs  = _filter_by_date(Expense.objects.all(), df, dt, field='date')
+    expenses_qs  = _filter_by_date(Expense.objects.filter(is_voided=False), df, dt, field='date')
     total_exp    = expenses_qs.aggregate(t=Sum('amount'))['t'] or Decimal('0')
     payroll      = (Employee.objects.filter(is_active=True)
                    .aggregate(t=Sum('salary'))['t'] or Decimal('0'))

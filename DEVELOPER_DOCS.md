@@ -1,7 +1,7 @@
 # Searing Sandwiches — ERP Developer Documentation
 
-> **Stack:** Python 3.14 · Django 5.2.7 · MySQL · ReportLab · openpyxl  
-> **Last updated:** 2025
+> **Stack:** Python 3.12+ · Django 5.2.7 · TiDB/MySQL · ReportLab · openpyxl
+> **Last updated:** 2026
 
 ---
 
@@ -36,7 +36,7 @@ This is a **full-stack restaurant POS + ERP** built with Django. It handles:
 - Accounting (journal entries, P&L, balance sheet)
 - Reports (PDF + Excel exports across every module)
 
-The "business logic" that ties modules together (e.g., a sale deducts stock AND posts a journal entry) lives in `core/views.py` wrapped in `try/except` so a bug in one module never crashes an order.
+The order and goods-receiving flows keep stock changes and journal posting in the same database transaction. A failed journal rolls back the business operation rather than leaving stock and accounting out of sync. See `core/order_integrity.py`, `purchasing/receiving.py`, and `accounting/utils.py`.
 
 ---
 
@@ -108,18 +108,20 @@ cd pos_project
 
 # 2. Install Python deps
 pip install -r requirements.txt
-pip install openpyxl   # not in requirements.txt yet — add it
 
 # 3. Configure database
-# Create a .env file (or edit config/settings.py directly):
+# Create a .env file (never put production secrets in source):
+DJANGO_SECRET_KEY=your-development-secret
+DJANGO_DEBUG=true
 DB_NAME=your_db
 DB_USER=your_user
 DB_PASSWORD=your_pass
 DB_HOST=localhost
-DB_PORT=3306
+DB_PORT=4000
 
 # 4. Run migrations  ← always do this after pulling new code
 python manage.py migrate
+python manage.py createcachetable
 
 # 5. Create a superuser
 python manage.py createsuperuser
@@ -168,10 +170,7 @@ openpyxl>=3.1
 | `units_per_box` | PositiveInt | Boxes only |
 | `sub_unit` | CharField | Boxes only (cans/packets) |
 
-**Stock is NEVER manually edited.** It changes only via:
-- Sale → `core.views.complete_order()` deducts stock via `StockLog`
-- Purchase receiving → `purchasing.views.receive_po()` adds stock
-- Manual adjustment in the admin
+Stock changes through sales, order edits and voids, purchase receipts, damage logging, and manager adjustments. These paths write `StockLog` rows. New order lines also store actual ingredient consumption so later recipe changes do not alter stock restoration.
 
 ---
 
@@ -411,14 +410,14 @@ Create PO (draft)
     ↓
 [Optional] Mark as Sent
     ↓
-Receive PO (full or partial) → purchasing/views.py receive_po()
+Receive PO (full or partial) → purchasing/receiving.py receive_goods()
     ↓  
     • PurchaseOrderLine.quantity_received += received_qty
     • Ingredient.stock_quantity += received_qty
     • StockLog row written (reason='restock')
     • CostHistory row written (old_cost → new_cost)
-    • Ingredient.cost_per_unit updated to new unit_cost
-    • accounting/utils.post_purchase_journal() called
+    • Ingredient.cost_per_unit updated by weighted average
+    • Invoice and journal posted only for the value received in this transaction
     • PO status → 'received' or 'partial'
 ```
 
@@ -435,23 +434,16 @@ The Create PO form (`purchasing/templates/purchasing/create_po.html`) has JavaSc
 
 ## 10. Accounting Hooks
 
-Located in `accounting/utils.py`. Called non-blockingly from `core/views.py`:
-
-```python
-try:
-    from accounting.utils import post_sale_journal
-    post_sale_journal(order)
-except Exception:
-    pass  # never crash a sale due to accounting bug
-```
+Located in `accounting/utils.py`. Sales, order edits and voids, purchase receipts, and payroll payment post journals inside their database transactions. Let a posting failure roll back the operation and show a safe error to the user.
 
 | Function | Triggered by | Journal entry |
 |----------|-------------|---------------|
 | `post_sale_journal(order)` | Order completion | Dr Cash · Cr Revenue; Dr COGS · Cr Inventory |
-| `post_purchase_journal(po)` | PO received | Dr Inventory · Cr AP |
-| `post_payroll_journal(salary_run)` | Payroll run paid | Dr Payroll Expense · Cr Cash |
+| `post_purchase_journal(po, amount=received_value)` | Each PO receipt | Dr Inventory · Cr AP for received value |
+| `post_payroll_journal(salary_run)` | Payroll run paid | Dr Payroll Expense after salary reductions · Cr Cash and Employee Advances |
 | `post_expense_journal(expense)` | Expense logged | Dr Operating Expenses · Cr Cash |
-| `post_void_journal(order)` | Order voided | Reversal of sale entry |
+| `post_void_journal(order)` | Order voided | Reversal of sale and COGS entries |
+| `post_order_adjustment_journal(order, revenue_delta, cogs_delta)` | Order quantity edit | Posts revenue and COGS differences |
 
 ---
 
@@ -603,22 +595,19 @@ Add `*_pdf` and `*_excel` views to `reports/views.py` and URLs to `reports/urls.
 `TimeField` values render as `"9:07 a.m."` in Django templates. If you carry these into hidden form fields and POST them back, the model save will raise `ValidationError`. **Always** use `{{ rec.check_in|time:"H:i" }}` in templates and call `normalize_time()` in views before saving attendance data.
 
 ### Stock quantity precision
-`stock_quantity` has 3 decimal places. Recipe quantities entered as grams are divided by 1000 before storage. If you see off-by-one stock discrepancies, check that all callers of `_convert_to_stock_unit()` use `float()` not `Decimal()` for the conversion factor.
+`stock_quantity` has 3 decimal places. Keep stock math in `Decimal` and quantize converted recipe quantities to 3 decimal places before saving stock and consumption snapshots.
 
-### Accounting hooks must not break sales
-All calls to `accounting/utils.py` are wrapped in `try/except Exception: pass`. Do NOT remove this pattern. A bug in accounting must never prevent a cashier from completing a sale.
+### Accounting and stock must commit together
+Do not catch a journal-posting failure inside a stock or payroll transaction. Catch it outside the transaction so all changes roll back.
 
-### `openpyxl` not in requirements.txt
-The `reports` app uses `openpyxl`. It was installed manually. Add to `requirements.txt`:
-```
-openpyxl>=3.1
-```
+### Dependencies
+`openpyxl` is declared in `requirements.txt`.
 
 ### PO unit convention
 `PurchaseOrderLine.quantity_ordered` is **always in the ingredient's base stock unit** regardless of what the user typed in the form. The JS converts grams → kg before submission. Never trust the raw UI input — always read from the hidden fields.
 
 ### Cost-per-unit updates on PO receive
-When a PO is received, `Ingredient.cost_per_unit` is updated to the latest purchase unit cost. This affects future COGS calculations but does NOT retroactively change historical order costs (those are captured at sale time in `OrderItem.price_at_order` and COGS is recalculated from current `cost_per_unit` at report time).
+When a PO is received, `Ingredient.cost_per_unit` is updated by weighted average. Historical sales keep their `OrderItem.cogs_at_sale` snapshots; later restocks do not change those values.
 
 ### MySQL strict mode
 If you see `django.db.utils.OperationalError: (1292, "Incorrect datetime value")`, your MySQL server has `STRICT_TRANS_TABLES` enabled. Make sure all DateTimeField defaults use `timezone.now` not `datetime.now`.
