@@ -46,6 +46,7 @@ class JournalEntry(models.Model):
         ('expense',   'Expense'),
         ('manual',    'Manual'),
         ('void',      'Order Void'),
+        ('adjustment','Order / Expense Adjustment'),
         ('advance',   'Employee Advance'),
         ('damage',    'Damaged Goods / Wastage'),
     ]

@@ -1,7 +1,6 @@
 import logging
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Sum, Count, Q
@@ -173,6 +172,12 @@ def create_salary_run(request):
                 if days_in_period > 0 and days_worked > 0:
                     gross = (emp.salary * days_worked / days_in_period).quantize(Decimal('0.01'))
 
+                if advance_total > gross:
+                    transaction.set_rollback(True)
+                    messages.error(request,
+                        f"Approved advances for {emp.full_name} exceed this run's gross pay. "
+                        "No salary run was created.")
+                    return redirect('hr:salary_runs')
                 net = max(Decimal('0'), gross - advance_total)
 
                 SalaryLine.objects.create(
@@ -204,53 +209,54 @@ def salary_run_detail(request, pk):
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'mark_paid':
-            if run.status == 'paid':
-                # Idempotency guard: without this, double-submitting the form (e.g. a
-                # slow network + impatient double-click) would re-post a duplicate
-                # accounting journal entry for the same payroll run.
-                messages.warning(request, "This salary run is already marked as paid.")
-                return redirect('hr:salary_run_detail', pk=pk)
-            with transaction.atomic():
-                run.status = 'paid'
-                run.save()
-                # These advances were already locked and tagged with deducted_in=run
-                # at creation time (see create_salary_run), so this only ever
-                # settles the advances that actually reduced this run's net pay.
-                Advance.objects.filter(deducted_in=run, status='approved').update(status='deducted')
-                try:
-                    from accounting.utils import post_payroll_journal
-                    post_payroll_journal(run, request.user)
-                except Exception:
-                    logger.exception("Failed to post payroll journal for salary run %s", run.pk)
-                    messages.warning(
-                        request,
-                        "Salary run marked as paid, but the accounting journal entry "
-                        "failed to post automatically. Please check the Accounting module."
-                    )
-            messages.success(request, "Salary run marked as paid.")
-        elif action == 'edit_line':
-            line_id = request.POST.get('line_id')
-            line = get_object_or_404(SalaryLine, id=line_id, salary_run=run)
             try:
-                line.gross      = Decimal(request.POST.get('gross', str(line.gross)) or '0')
-                line.deductions = Decimal(request.POST.get('deductions', '0') or '0')
-                line.advances   = Decimal(request.POST.get('advances', '0') or '0')
-            except InvalidOperation:
-                messages.error(request, "Gross, deductions, and advances must be valid numbers.")
-                return redirect('hr:salary_run_detail', pk=pk)
-            line.notes = request.POST.get('notes', '').strip()
-            line.net   = max(Decimal('0'), line.gross - line.deductions - line.advances)
+                from .payroll import mark_salary_run_paid
+                mark_salary_run_paid(pk, request.user)
+            except ValueError as exc:
+                messages.error(request, str(exc))
+            except Exception:
+                logger.exception("Failed to pay salary run %s", pk)
+                messages.error(request, "Payroll could not be paid. No changes were saved.")
+            else:
+                messages.success(request, "Salary run marked as paid.")
+        elif action == 'edit_line':
             with transaction.atomic():
+                run = SalaryRun.objects.select_for_update().get(pk=pk)
+                if run.status != 'draft':
+                    messages.error(request, 'Paid payroll cannot be edited.')
+                    return redirect('hr:salary_run_detail', pk=pk)
+                line = get_object_or_404(SalaryLine, id=request.POST.get('line_id'), salary_run=run)
+                try:
+                    gross = Decimal(request.POST.get('gross', str(line.gross)) or '0')
+                    deductions = Decimal(request.POST.get('deductions', '0') or '0')
+                except InvalidOperation:
+                    messages.error(request, 'Gross and deductions must be valid numbers.')
+                    return redirect('hr:salary_run_detail', pk=pk)
+                reserved = (Advance.objects.filter(deducted_in=run, employee=line.employee,
+                                                   status='approved')
+                            .aggregate(total=Sum('amount'))['total'] or Decimal('0'))
+                if (not gross.is_finite() or not deductions.is_finite() or
+                        gross < 0 or deductions < 0 or gross < deductions + reserved):
+                    messages.error(request, 'Gross pay must cover nonnegative deductions and reserved advances.')
+                    return redirect('hr:salary_run_detail', pk=pk)
+                line.gross = gross
+                line.deductions = deductions
+                line.advances = reserved
+                line.net = gross - deductions - reserved
+                line.notes = request.POST.get('notes', '').strip()[:200]
                 line.save()
-                run.total_gross      = run.lines.aggregate(t=Sum('gross'))['t'] or 0
+                run.total_gross = run.lines.aggregate(t=Sum('gross'))['t'] or 0
                 run.total_deductions = run.lines.aggregate(t=Sum('deductions'))['t'] or 0
-                run.total_net        = run.lines.aggregate(t=Sum('net'))['t'] or 0
-                run.save()
-            messages.success(request, "Line updated.")
+                run.total_net = run.lines.aggregate(t=Sum('net'))['t'] or 0
+                run.save(update_fields=['total_gross', 'total_deductions', 'total_net'])
+            messages.success(request, 'Line updated.')
         return redirect('hr:salary_run_detail', pk=pk)
 
     lines = run.lines.select_related('employee').all()
-    return render(request, 'hr/salary_run_detail.html', {'run': run, 'lines': lines})
+    total_advances = lines.aggregate(total=Sum('advances'))['total'] or Decimal('0')
+    return render(request, 'hr/salary_run_detail.html', {
+        'run': run, 'lines': lines, 'total_advances': total_advances,
+    })
 
 
 # ── Advances ──────────────────────────────────────────────────────────────

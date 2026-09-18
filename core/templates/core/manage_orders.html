@@ -161,13 +161,6 @@
                                     <i class="bi bi-slash-circle"></i>
                                 </button>
                                 {% endif %}
-                                <button class="btn btn-sm btn-outline-danger rounded-pill"
-                                    data-bs-toggle="modal" data-bs-target="#deleteOrderModal"
-                                    data-id="{{ order.id }}" data-num="{{ order.order_number }}"
-                                    data-url="{% url 'delete_order' order.id %}"
-                                    title="Delete Order">
-                                    <i class="bi bi-trash"></i>
-                                </button>
                             </div>
                         </td>
                     </tr>
@@ -184,34 +177,6 @@
             </div>
             <div class="px-4 pb-3">
                 {% include "_pagination.html" %}
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Delete Modal -->
-<div class="modal fade" id="deleteOrderModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow rounded-4">
-            <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title fw-bold text-danger">Delete Order</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-4">
-                <p class="text-secondary">Permanently delete order <strong id="del-order-num"></strong>?</p>
-                <div class="alert alert-warning rounded-3 small mb-0">
-                    <i class="bi bi-exclamation-triangle me-1"></i>
-                    Stock will <strong>not</strong> be restored. Use <strong>Void</strong> if you want stock back.
-                </div>
-            </div>
-            <div class="modal-footer border-0 pt-0 p-4">
-                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
-                <form id="delete-order-form" method="post" action="#" style="display:inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-danger rounded-pill px-4">
-                        <i class="bi bi-trash me-1"></i> Delete
-                    </button>
-                </form>
             </div>
         </div>
     </div>
@@ -256,12 +221,6 @@
 
 {% block extra_js %}
 <script>
-document.getElementById('deleteOrderModal').addEventListener('show.bs.modal', e => {
-    const btn = e.relatedTarget;
-    document.getElementById('del-order-num').textContent = '#' + btn.dataset.num;
-    document.getElementById('delete-order-form').action = btn.dataset.url;
-});
-
 document.getElementById('voidModal').addEventListener('show.bs.modal', e => {
     const btn = e.relatedTarget;
     const id  = btn.dataset.id;

@@ -28,9 +28,7 @@
     <div class="col-sm-4"><div class="stat-card">
         <div class="stat-label">Total Advances</div>
         <div class="stat-value" style="color:#dc2626;">
-            {% with total_adv=0 %}
-            {{ run.total_deductions|floatformat:2 }}
-            {% endwith %}
+            {{ total_advances|floatformat:2 }}
         </div>
         <div class="stat-sub">EGP deducted</div>
     </div></div>
@@ -72,7 +70,9 @@
             {% if run.status == 'draft' %}
             <td>
                 <button class="btn btn-sm btn-outline-secondary rounded-3"
-                    onclick="openEditLine({{ line.id }}, {{ line.gross }}, {{ line.deductions }}, {{ line.advances }}, '{{ line.notes }}')">
+                    data-line-id="{{ line.id }}" data-gross="{{ line.gross }}"
+                    data-deductions="{{ line.deductions }}" data-advances="{{ line.advances }}"
+                    data-notes="{{ line.notes }}" onclick="openEditLine(this)">
                     <i class="bi bi-pencil"></i>
                 </button>
             </td>
@@ -85,7 +85,7 @@
                 <td colspan="4">Totals</td>
                 <td class="text-end">{{ run.total_gross|floatformat:2 }}</td>
                 <td class="text-end text-danger">{{ run.total_deductions|floatformat:2 }}</td>
-                <td class="text-end text-warning"></td>
+                <td class="text-end text-warning">{{ total_advances|floatformat:2 }}</td>
                 <td class="text-end" style="color:#FF4500;">{{ run.total_net|floatformat:2 }}</td>
                 <td colspan="{% if run.status == 'draft' %}2{% else %}1{% endif %}"></td>
             </tr>
@@ -117,7 +117,8 @@
                         </div>
                         <div class="col-6">
                             <label class="erp-form-label">Advances (EGP)</label>
-                            <input type="number" step="0.01" name="advances" id="edit-advances" class="erp-input" value="0">
+                            <input type="number" step="0.01" id="edit-advances" class="erp-input" value="0" readonly>
+                            <div class="form-text">Advances come from approved advance records.</div>
                         </div>
                         <div class="col-12">
                             <label class="erp-form-label">Notes</label>
@@ -136,12 +137,12 @@
 {% endblock %}
 {% block extra_js %}
 <script>
-function openEditLine(id, gross, ded, adv, notes) {
-    document.getElementById('edit-line-id').value = id;
-    document.getElementById('edit-gross').value = gross;
-    document.getElementById('edit-deductions').value = ded;
-    document.getElementById('edit-advances').value = adv;
-    document.getElementById('edit-line-notes').value = notes;
+function openEditLine(button) {
+    document.getElementById('edit-line-id').value = button.dataset.lineId;
+    document.getElementById('edit-gross').value = button.dataset.gross;
+    document.getElementById('edit-deductions').value = button.dataset.deductions;
+    document.getElementById('edit-advances').value = button.dataset.advances;
+    document.getElementById('edit-line-notes').value = button.dataset.notes;
     new bootstrap.Modal(document.getElementById('editLineModal')).show();
 }
 </script>

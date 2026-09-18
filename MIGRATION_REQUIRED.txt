@@ -1,32 +1,20 @@
-==============================================================
-  ACTION REQUIRED — Run this ONCE after extracting v7+
-==============================================================
+MIGRATION REQUIRED BEFORE USING THIS VERSION
 
-The dashboard was crashing with:
-  "Unknown column 'core_orderitem.cogs_at_sale'"
+The order-integrity update adds:
+- core.0019_order_item_consumption: per-order-line ingredient consumption snapshots
+  and a flag distinguishing older orders.
+- accounting.0004_journalentry_adjustment_source: a journal source label for
+  order adjustments.
+- core.0020_expense_is_voided_expense_voided_at: keeps voided expenses for audit
+  while excluding them from operating expense reports.
 
-This is because a new database column was added but the
-migration hasn't been run yet.
+Back up the production database before deploying. The Render build script runs
+`python manage.py migrate` automatically. Confirm that the deployment migration
+succeeds before using the POS.
 
-FIX — Run this command in your project folder:
-
-  python manage.py migrate
-
-That's it. The app will work immediately after.
-
---------------------------------------------------------------
-OPTION B — Manual SQL (if you prefer not to use Django):
---------------------------------------------------------------
-Open MySQL and run this SQL command:
-
-  ALTER TABLE core_orderitem
-  ADD COLUMN cogs_at_sale DECIMAL(10,4) NOT NULL DEFAULT 0;
-
---------------------------------------------------------------
-GOOD NEWS:
---------------------------------------------------------------
-The app is now coded to survive WITHOUT the migration too —
-if you forget to migrate, the dashboard and all pages will
-still load (COGS snapshots just won't be stored until you migrate).
-
-==============================================================
+Existing orders are not retroactively assigned per-item consumption snapshots.
+Their quantities cannot be edited safely, because recipes may have changed.
+Voiding an older order uses its historical stock logs when those records exist.
+If the log is incomplete, the operation stops for manual reconciliation.
+Previously edited or deleted expenses may already have mismatched accounting
+entries; this migration does not reconstruct those historical transactions.

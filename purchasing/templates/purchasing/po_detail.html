@@ -9,10 +9,12 @@
     </div>
     <div class="d-flex gap-2">
         <a href="{% url 'purchasing:purchase_orders' %}" class="btn btn-light btn-erp"><i class="bi bi-arrow-left me-1"></i> Back</a>
+        {% if po.status == 'draft' or po.status == 'sent' %}
         <button class="btn btn-outline-danger btn-erp"
             data-bs-toggle="modal" data-bs-target="#deletePOModal">
             <i class="bi bi-trash me-1"></i> Delete PO
         </button>
+        {% endif %}
         {% if po.status == 'draft' %}
         <form method="post">
             {% csrf_token %}

@@ -1,84 +1,59 @@
-# 🍔 Searing Sandwiches - Enterprise ERP & POS Backend
+# Searing Sandwiches ERP & POS
 
-A comprehensive, custom-built Enterprise Resource Planning (ERP) and Point of Sale (POS) backend designed specifically for high-volume restaurant operations. 
+A Django web application for restaurant point of sale and back-office operations. It includes order entry, menu and ingredient management, purchasing, employee attendance and payroll, accounting journals, and PDF/Excel reports.
 
-Engineered from the ground up to handle live kitchen syncing, granular role-based access control, and seamless multi-client support, this system powers both an administrative web portal and a cross-platform mobile application.
+## Architecture
 
-## 🏗️ Architecture Overview
+- **Web UI:** Django server-rendered templates with session authentication and CSRF protection.
+- **Business modules:** `core`, `purchasing`, `hr`, `accounting`, and `reports`.
+- **Database:** TiDB through the `django-tidb` backend and MySQL protocol.
+- **Access:** Cashiers can use the POS; managers can access operational and financial pages; super admins manage accounts.
 
-The backend is built as a robust **Django 5.2.7** monolith backed by **TiDB (MySQL)**. To support future scalability and multi-platform clients without compromising the legacy web portal, the architecture implements a strict boundary between web and mobile clients:
+The browser POS uses `POST /api/create-order/` for order submission and `POST /api/validate-promo/` for promo validation. These endpoints use the authenticated web session. There is no mobile API in this project.
 
-* **Administrative Web Portal:** Utilizes traditional server-side rendering and stateful Session Authentication for secure, internal management.
-* **Isolated Mobile API (`/api/mobile/`):** A dedicated, stateless REST API built with Django REST Framework (DRF), secured via JWT, and optimized for mobile client consumption (React Native/Expo).
+## Local setup
 
-This project was developed leveraging modern AI tooling to accelerate boilerplate generation, optimize database queries, and enforce secure architectural patterns.
+1. Clone the repository and open its root directory:
 
-## 🚀 Core Features
+   ```bash
+   git clone https://github.com/AhmedHaggag05/restaurant-ERP-System.git
+   cd restaurant-ERP-System
+   ```
 
-* **Dual Authentication Pipeline:** Safely maintains Session Auth for the web portal while exposing a robust `djangorestframework-simplejwt` pipeline for mobile endpoints.
-* **Role-Based Access Control (RBAC):** Strict permission classes isolating endpoints between Cashiers (order entry, menu read) and Managers (financial KPIs, system overrides).
-* **Real-Time Kitchen Display System (KDS):** Endpoints optimized to serve active, live orders directly to kitchen staff displays.
-* **Smart Inventory Management:** Transactional order creation that automatically validates ingredient stock and blocks orders (`400 Bad Request`) upon insufficient inventory.
-* **Enterprise Security:** Comprehensive API rate-limiting, CORS configuration, and endpoint isolation to prevent unauthorized data access.
+2. Create a Python virtual environment and install dependencies:
 
-## 💻 Tech Stack
+   ```bash
+   python -m venv .venv
+   # Windows: .venv\Scripts\activate
+   # macOS/Linux: source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
-* **Framework:** Django 5.2.7
-* **API Layer:** Django REST Framework (DRF)
-* **Database:** TiDB / MySQL
-* **Authentication:** SimpleJWT (Stateless) & Django Session Auth (Stateful)
-* **Security:** Django-Ratelimit, custom DRF Permission Classes
+3. Create `.env` in the repository root with your own development values:
 
-## 📡 Mobile API Contract Reference
+   ```env
+   DJANGO_SECRET_KEY=replace-with-a-long-random-development-key
+   DJANGO_DEBUG=true
+   DB_NAME=your_database
+   DB_USER=your_database_user
+   DB_PASSWORD=your_database_password
+   DB_HOST=your_tidb_host
+   DB_PORT=4000
+   ALLOWED_HOSTS=localhost,127.0.0.1
+   ```
 
-The isolated mobile API serves the React Native POS application. Below are the core endpoints:
+   `config/settings.py` also loads `.env` from the parent directory. Keep credentials out of Git.
 
-**Authentication**
-* `POST /api/mobile/login/` - Issues `{access, refresh}` tokens.
-* `POST /api/mobile/refresh/` - Issues new access token from valid refresh token.
-* `GET /api/mobile/me/` - Returns active user profile `{id, username, role}`.
+4. Apply migrations and create the database-backed cache table, then start the server:
 
-**Operations**
-* `GET /api/mobile/menu/` - Retrieves categorized menu items and pricing.
-* `POST /api/mobile/create-order/` - Processes cart payload. Validates stock, applies promo codes, and assigns table numbers.
-* `GET /api/mobile/live-orders/` - Retrieves active queue for the Kitchen Display.
+   ```bash
+   python manage.py migrate
+   python manage.py createcachetable
+   python manage.py runserver
+   ```
 
-**Management**
-* `GET /api/mobile/dashboard-kpis/` - Retrieves live financial data (Requires Manager Role).
+## Production changes
 
-## 🛠️ Local Development Setup
+`build.sh` installs dependencies, collects static files, runs migrations, and creates the cache table during a Render build. Review migrations and back up production data before merging a deployment branch. The application intentionally keeps voided orders in history; it does not permanently delete orders that have stock and accounting records.
 
-**1. Clone the repository**
-```bash
-git clone https://github.com/yourusername/searing-sandwiches-backend.git
-cd searing-sandwiches-backend
-```
-
-**2. Set up the virtual environment**
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-```
-
-**3. Install dependencies**
-```bash
-pip install -r requirements.txt
-```
-
-**4. Configure Environment Variables**
-Create a `.env` file in the root directory and add your TiDB credentials and secret keys:
-```env
-DEBUG=True
-SECRET_KEY=your_secret_key
-DB_NAME=searing_db
-DB_USER=root
-DB_PASSWORD=your_password
-DB_HOST=127.0.0.1
-DB_PORT=4000
-```
-
-**5. Run Migrations and Start Server**
-```bash
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
-```
+Older orders created before the stock-consumption snapshot migration can be voided using their historical stock logs. Their item quantities cannot be edited automatically because a later recipe change makes the original per-item consumption impossible to reconstruct reliably.
