@@ -1941,12 +1941,14 @@ def shift_report(request):
 
     item_summary = {}
     for order in orders:
-        for oi in order.items.all():
+        order_items = list(order.items.all())
+        net_revenues = net_line_revenues(order, order_items)
+        for oi in order_items:
             name = oi.menu_item.name if oi.menu_item else '[deleted]'
             if name not in item_summary:
                 item_summary[name] = {'qty': 0, 'revenue': Decimal('0')}
             item_summary[name]['qty'] += oi.quantity
-            item_summary[name]['revenue'] += oi.price_at_order * oi.quantity
+            item_summary[name]['revenue'] += net_revenues[oi.pk]
 
     day_expenses = Expense.objects.filter(date=report_date, is_voided=False)
     total_expenses = sum(e.amount for e in day_expenses)
@@ -1977,7 +1979,7 @@ def shift_report_pdf(request):
         report_date = timezone.now().date()
 
     orders = Order.objects.filter(status='active').prefetch_related(
-        'items__menu_item__ingredients__ingredient').filter(created_at__date=report_date)
+        'items__menu_item').filter(created_at__date=report_date)
 
     total_revenue = sum(o.total_price for o in orders)
     total_discount = sum(o.discount_amount for o in orders)
@@ -1985,12 +1987,14 @@ def shift_report_pdf(request):
 
     item_summary = {}
     for order in orders:
-        for oi in order.items.all():
+        order_items = list(order.items.all())
+        net_revenues = net_line_revenues(order, order_items)
+        for oi in order_items:
             name = oi.menu_item.name if oi.menu_item else '[deleted]'
             if name not in item_summary:
                 item_summary[name] = {'qty': 0, 'revenue': Decimal('0')}
             item_summary[name]['qty'] += oi.quantity
-            item_summary[name]['revenue'] += oi.price_at_order * oi.quantity
+            item_summary[name]['revenue'] += net_revenues[oi.pk]
 
     day_expenses = Expense.objects.filter(date=report_date, is_voided=False)
     total_expenses = sum(e.amount for e in day_expenses)
@@ -2052,9 +2056,9 @@ def shift_report_pdf(request):
         [Paragraph('Revenue', n8), Paragraph(f'{float(total_revenue):.2f}', n8)],
         [Paragraph('Discounts', n8), Paragraph(f'- {float(total_discount):.2f}', red8)],
         [Paragraph('Ingredient Cost', n8), Paragraph(f'- {float(ingredient_cost):.2f}', red8)],
-        [Paragraph('Daily Payroll', n8), Paragraph(f'- {float(daily_payroll):.2f}', red8)],
+        [Paragraph('Estimated Daily Payroll', n8), Paragraph(f'- {float(daily_payroll):.2f}', red8)],
         [Paragraph('Day Expenses', n8), Paragraph(f'- {float(total_expenses):.2f}', red8)],
-        [Paragraph('<b>Net Profit</b>', b8),
+        [Paragraph('<b>Estimated Net Profit</b>', b8),
          Paragraph(f'<b>{float(net_profit):.2f}</b>', np_color)],
     ]
     kt = Table(kpi_rows, colWidths=[8 * cm, 4 * cm])

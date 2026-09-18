@@ -6,7 +6,7 @@
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
         <div>
             <h1 class="section-title mb-1">Daily Shift Report</h1>
-            <p class="text-secondary mb-0">End-of-day summary for {{ report_date|date:"l, F j, Y" }}</p>
+            <p class="text-secondary mb-0">End-of-day order activity for {{ report_date|date:"l, F j, Y" }}. Profit uses estimated daily payroll; use Accounting P&amp;L for posted totals.</p>
         </div>
         <div class="d-flex gap-2">
             <a href="{% url 'shift_report_pdf' %}?date={{ report_date|date:'Y-m-d' }}"
@@ -52,7 +52,7 @@
         </div>
         <div class="col-6 col-md-3">
             <div class="card border-0 shadow-sm rounded-4 p-3 h-100 {% if net_profit >= 0 %}border-success{% else %}border-danger{% endif %}">
-                <div class="text-secondary small fw-bold text-uppercase mb-1">Net Profit</div>
+                <div class="text-secondary small fw-bold text-uppercase mb-1">Estimated Net Profit</div>
                 <div class="fw-bold fs-4 {% if net_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
                     {{ net_profit|floatformat:2 }} EGP
                 </div>
@@ -116,7 +116,7 @@
                                 <td class="text-end fw-bold text-danger">-{{ total_expenses|floatformat:2 }} EGP</td>
                             </tr>
                             <tr class="border-top">
-                                <td class="fw-bold py-2">Net Profit</td>
+                                <td class="fw-bold py-2">Estimated Net Profit</td>
                                 <td class="text-end fw-bold fs-5 {% if net_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
                                     {{ net_profit|floatformat:2 }} EGP
                                 </td>

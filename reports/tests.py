@@ -56,6 +56,11 @@ class FinancialReportTests(TestCase):
                      '/reports/finance/custom/excel/?group_by=item'):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, path)
+        shift_date = order.created_at.date().isoformat()
+        for path in (f'/shift-report/?date={shift_date}',
+                     f'/shift-report/pdf/?date={shift_date}'):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200, path)
         self.menu_item.delete()
         general = _build_finance_general('', '')
         self.assertEqual(general['item_revenue'], Decimal('30.00'))
