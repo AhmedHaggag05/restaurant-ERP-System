@@ -66,6 +66,9 @@
 
     <!-- Results -->
     <div class="col-lg-9">
+        {% if unknown_cost_count %}<div class="alert alert-warning small" role="status">
+            {{ unknown_cost_count }} older order line{{ unknown_cost_count|pluralize }} have no recorded ingredient cost. Profit may be understated.
+        </div>{% endif %}
         {% if results is not None %}
         <!-- Export buttons + summary -->
         <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">

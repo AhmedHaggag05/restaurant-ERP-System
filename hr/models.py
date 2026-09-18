@@ -72,6 +72,7 @@ class Advance(models.Model):
     STATUS_CHOICES = [
         ('pending',  'Pending'),
         ('approved', 'Approved'),
+        ('paid',     'Paid'),
         ('rejected', 'Rejected'),
         ('deducted', 'Deducted'),
     ]
@@ -82,6 +83,9 @@ class Advance(models.Model):
     status     = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL,
                                     related_name='approved_advances')
+    paid_at = models.DateTimeField(null=True, blank=True)
+    paid_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL,
+                                related_name='paid_advances')
     deducted_in = models.ForeignKey(SalaryRun, null=True, blank=True, on_delete=models.SET_NULL,
                                     related_name='deducted_advances')
     created_at = models.DateTimeField(auto_now_add=True)

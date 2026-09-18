@@ -163,8 +163,9 @@ def profit_loss(request):
     date_from = request.GET.get('date_from', today.replace(day=1).isoformat())
     date_to   = request.GET.get('date_to',   today.isoformat())
 
-    rev_accounts = list(Account.objects.filter(account_type='revenue', is_active=True))
-    exp_accounts = list(Account.objects.filter(account_type='expense', is_active=True))
+    # An archived account can still have posted history in the selected period.
+    rev_accounts = list(Account.objects.filter(account_type='revenue'))
+    exp_accounts = list(Account.objects.filter(account_type='expense'))
     balances = _bulk_account_balances(
         rev_accounts + exp_accounts, date_gte=date_from, date_lte=date_to
     )

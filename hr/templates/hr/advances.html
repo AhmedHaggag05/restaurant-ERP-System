@@ -5,7 +5,7 @@
 <div class="erp-page-header">
     <div>
         <h1 class="erp-page-title">Employee Advances</h1>
-        <p class="erp-page-sub">Track salary advances and approvals</p>
+        <p class="erp-page-sub">Approve, pay, and recover salary advances</p>
     </div>
     <button class="btn btn-erp btn-primary-erp" data-bs-toggle="modal" data-bs-target="#addAdvanceModal">
         <i class="bi bi-plus-lg me-1"></i> Record Advance
@@ -15,8 +15,14 @@
 <div class="row g-3 mb-4">
     <div class="col-sm-6"><div class="stat-card">
         <div class="stat-icon" style="background:#fef9c3;color:#a16207;"><i class="bi bi-wallet2"></i></div>
-        <div class="stat-label">Approved Pending Deduction</div>
+        <div class="stat-label">Paid Pending Deduction</div>
         <div class="stat-value">{{ pending_total|floatformat:2 }}</div>
+        <div class="stat-sub">EGP</div>
+    </div></div>
+    <div class="col-sm-6"><div class="stat-card">
+        <div class="stat-icon" style="background:#e0f2fe;color:#0369a1;"><i class="bi bi-check-circle"></i></div>
+        <div class="stat-label">Approved Awaiting Payment</div>
+        <div class="stat-value">{{ approved_total|floatformat:2 }}</div>
         <div class="stat-sub">EGP</div>
     </div></div>
 </div>
@@ -25,7 +31,7 @@
     <div class="erp-card-header"><i class="bi bi-wallet2"></i> All Advances</div>
     <table class="erp-table">
         <thead>
-            <tr><th>Employee</th><th>Amount</th><th>Date</th><th>Reason</th><th>Status</th><th>Approved By</th><th>Actions</th></tr>
+            <tr><th>Employee</th><th>Amount</th><th>Requested</th><th>Reason</th><th>Status</th><th>Approved By</th><th>Paid On</th><th>Actions</th></tr>
         </thead>
         <tbody>
         {% for adv in advances %}
@@ -36,6 +42,7 @@
             <td>{{ adv.reason|default:"—" }}</td>
             <td><span class="status-badge status-{{ adv.status }}">{{ adv.get_status_display }}</span></td>
             <td>{{ adv.approved_by.username|default:"—" }}</td>
+            <td>{% if adv.paid_at %}{{ adv.paid_at|date:"M d, Y" }}<div class="small text-muted">{{ adv.paid_by.username|default:"—" }}</div>{% else %}—{% endif %}</td>
             <td>
                 {% if adv.status == 'pending' %}
                 <form method="post" class="d-inline">
@@ -50,13 +57,20 @@
                     <input type="hidden" name="advance_id" value="{{ adv.id }}">
                     <button class="btn btn-sm btn-outline-danger rounded-3">Reject</button>
                 </form>
+                {% elif adv.status == 'approved' %}
+                <form method="post" class="d-inline" onsubmit="return confirm('Confirm cash has been paid to this employee? This posts an accounting entry.')">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="pay">
+                    <input type="hidden" name="advance_id" value="{{ adv.id }}">
+                    <button class="btn btn-sm btn-primary-erp btn-erp">Mark paid</button>
+                </form>
                 {% else %}
                 <span class="text-muted small">—</span>
                 {% endif %}
             </td>
         </tr>
         {% empty %}
-        <tr><td colspan="7" class="text-center text-muted py-4">No advances recorded.</td></tr>
+        <tr><td colspan="8" class="text-center text-muted py-4">No advances recorded.</td></tr>
         {% endfor %}
         </tbody>
     </table>

@@ -440,7 +440,9 @@ Located in `accounting/utils.py`. Sales, order edits and voids, purchase receipt
 |----------|-------------|---------------|
 | `post_sale_journal(order)` | Order completion | Dr Cash · Cr Revenue; Dr COGS · Cr Inventory |
 | `post_purchase_journal(po, amount=received_value)` | Each PO receipt | Dr Inventory · Cr AP for received value |
+| `post_advance_payment_journal(advance)` | Advance marked paid | Dr Employee Advances · Cr Cash |
 | `post_payroll_journal(salary_run)` | Payroll run paid | Dr Payroll Expense after salary reductions · Cr Cash and Employee Advances |
+| `post_stock_adjustment_journal(ingredient, change)` | Manual stock correction | Dr Inventory / Cr Inventory Gain for additions; Dr Wastage / Cr Inventory for removals |
 | `post_expense_journal(expense)` | Expense logged | Dr Operating Expenses · Cr Cash |
 | `post_void_journal(order)` | Order voided | Reversal of sale and COGS entries |
 | `post_order_adjustment_journal(order, revenue_delta, cogs_delta)` | Order quantity edit | Posts revenue and COGS differences |

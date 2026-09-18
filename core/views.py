@@ -23,6 +23,7 @@ from .models import (
     UserProfile, Employee, PromoCode, Expense, MenuCategory,
     StockLog, CostHistory, ActivityLog, DamagedStock, OrderItemConsumption,
 )
+from .financials import line_cogs, net_line_revenues
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def _convert_to_stock_unit(qty, recipe_unit, stock_unit):
 def _log_stock(ingredient, qty_change, reason, user=None, note=''):
     # Callers persist the new stock quantity before recording the change.
     before = ingredient.stock_quantity - qty_change
-    StockLog.objects.create(
+    return StockLog.objects.create(
         ingredient=ingredient,
         changed_by=user,
         reason=reason,
@@ -515,12 +516,9 @@ def dashboard_view(request):
     recent_revenue = sum(o.total_price for o in recent_orders)
     recent_cogs = Decimal('0')
     recent_count = recent_orders.count()
-    for o in recent_orders.prefetch_related('items__menu_item__ingredients__ingredient'):
+    for o in recent_orders.prefetch_related('items'):
         for oi in o.items.all():
-            if oi.menu_item:
-                for r in oi.menu_item.ingredients.all():
-                    sq = _convert_to_stock_unit(r.quantity_required, r.recipe_unit, r.ingredient.unit)
-                    recent_cogs += sq * r.ingredient.cost_per_unit * oi.quantity
+            recent_cogs += line_cogs(oi)
 
     avg_order_value = (recent_revenue / recent_count).quantize(Decimal('0.01')) if recent_count else Decimal('0')
     avg_gross_margin = float((recent_revenue - recent_cogs) / recent_revenue * 100) if recent_revenue else 0
@@ -611,7 +609,7 @@ def sales_report(request):
     date_to_str = request.GET.get('date_to', '')
 
     orders = Order.objects.filter(status='active').prefetch_related(
-        'items__menu_item__ingredients__ingredient'
+        'items__menu_item'
     ).order_by('-created_at')
 
     if date_from_str:
@@ -627,14 +625,18 @@ def sales_report(request):
         except ValueError:
             pass
 
-    total_revenue = sum((o.total_price for o in orders), Decimal('0'))
+    order_revenue = sum((o.total_price for o in orders), Decimal('0'))
     total_discounts = sum((o.discount_amount for o in orders), Decimal('0'))
     total_orders = orders.count()
     total_items_sold = sum(oi.quantity for o in orders for oi in o.items.all())
 
-    total_cogs = Decimal('0')
+    from accounting.reporting import profit_loss_totals
+    pnl = profit_loss_totals(date_from_str, date_to_str)
+    total_revenue = pnl['sales']
+    total_cogs = pnl['cogs']
     item_stats = {}
     daily_data = {}
+    unknown_cost_count = 0
 
     for order in orders:
         day = order.created_at.strftime('%Y-%m-%d')
@@ -642,35 +644,25 @@ def sales_report(request):
             daily_data[day] = {'revenue': Decimal('0'), 'cost': Decimal('0')}
         daily_data[day]['revenue'] += order.total_price
 
-        for oi in order.items.all():
-            if not oi.menu_item:
-                continue
-            item_cost = Decimal('0')
-            for r in oi.menu_item.ingredients.all():
-                sq = _convert_to_stock_unit(r.quantity_required, r.recipe_unit, r.ingredient.unit)
-                item_cost += sq * r.ingredient.cost_per_unit * oi.quantity
-            total_cogs += item_cost
+        order_items = list(order.items.all())
+        net_revenues = net_line_revenues(order, order_items)
+        for oi in order_items:
+            if not oi.stock_snapshot_ready and not oi.cogs_at_sale:
+                unknown_cost_count += 1
+            item_cost = line_cogs(oi)
             daily_data[day]['cost'] += item_cost
 
-            name = oi.menu_item.name
+            name = oi.menu_item.name if oi.menu_item else '[Deleted menu item]'
             if name not in item_stats:
                 item_stats[name] = {'name': name, 'qty': 0, 'revenue': Decimal('0'), 'cost': Decimal('0')}
             item_stats[name]['qty'] += oi.quantity
-            item_stats[name]['revenue'] += oi.price_at_order * oi.quantity
+            item_stats[name]['revenue'] += net_revenues[oi.pk]
             item_stats[name]['cost'] += item_cost
 
-    gross_profit = total_revenue - total_cogs
+    gross_profit = pnl['gross_profit']
     all_employees = Employee.objects.filter(is_active=True)
-    monthly_payroll = sum((e.salary for e in all_employees), Decimal('0'))
-    if date_from_str and date_to_str:
-        try:
-            days = (datetime.strptime(date_to_str, '%Y-%m-%d').date() -
-                    datetime.strptime(date_from_str, '%Y-%m-%d').date()).days + 1
-            period_payroll = (monthly_payroll / 30 * days).quantize(Decimal('0.01'))
-        except Exception:
-            period_payroll = monthly_payroll
-    else:
-        period_payroll = monthly_payroll
+    monthly_payroll = sum((employee.salary for employee in all_employees), Decimal('0'))
+    period_payroll = pnl['payroll']
 
     expenses_qs = Expense.objects.filter(is_voided=False)
     if date_from_str:
@@ -685,13 +677,13 @@ def sales_report(request):
                 date__lte=datetime.strptime(date_to_str, '%Y-%m-%d').date())
         except ValueError:
             pass
-    total_expenses = sum((e.amount for e in expenses_qs), Decimal('0'))
+    total_expenses = pnl['operating']
     expense_by_cat = {}
     for exp in expenses_qs:
         cat = exp.get_category_display()
         expense_by_cat[cat] = expense_by_cat.get(cat, Decimal('0')) + exp.amount
 
-    net_profit = gross_profit - period_payroll - total_expenses
+    net_profit = pnl['net_profit']
     gross_margin = float(gross_profit / total_revenue * 100) if total_revenue else 0
     net_margin = float(net_profit / total_revenue * 100) if total_revenue else 0
 
@@ -717,6 +709,9 @@ def sales_report(request):
         'total_cogs': total_cogs, 'gross_profit': gross_profit,
         'gross_margin': round(gross_margin, 1), 'period_payroll': period_payroll,
         'total_expenses': total_expenses, 'expense_by_cat': expense_by_cat,
+        'damage_expense': pnl['damage'], 'other_expenses': pnl['other_expenses'],
+        'other_revenue': pnl['other_revenue'], 'order_revenue': order_revenue,
+        'unknown_cost_count': unknown_cost_count,
         'net_profit': net_profit, 'net_margin': round(net_margin, 1),
         'top_items': top_items, 'bottom_items': bottom_items,
         'all_items': items_list,
@@ -913,45 +908,7 @@ def manage_ingredients(request):
                     messages.success(request, f"Ingredient '{name}' added.")
 
         elif action == 'restock':
-            ing_id = request.POST.get('ingredient_id')
-            try:
-                ingredient = get_object_or_404(Ingredient, id=ing_id)
-                old_qty = ingredient.stock_quantity
-                old_cost = ingredient.cost_per_unit
-                if ingredient.unit == 'boxes':
-                    num_boxes = Decimal(request.POST.get('num_boxes', '0') or '0')
-                    units_per_box = max(1, int(request.POST.get('units_per_box',
-                                                                str(ingredient.units_per_box)) or ingredient.units_per_box))
-                    total_cost = Decimal(request.POST.get('total_cost', '0') or '0')
-                    add_qty_d = num_boxes * units_per_box
-                    new_cost_d = (total_cost / add_qty_d).quantize(Decimal('0.0001')) if add_qty_d else old_cost
-                    ingredient.units_per_box = units_per_box
-                else:
-                    add_qty_d = Decimal(request.POST.get('add_quantity', '0') or '0')
-                    total_cost = Decimal(request.POST.get('total_cost', '0') or '0')
-                    new_cost_d = (total_cost / add_qty_d).quantize(Decimal('0.0001')) if add_qty_d else old_cost
-
-                total_qty = old_qty + add_qty_d
-                avg_cost = (old_qty * old_cost + add_qty_d * new_cost_d) / total_qty if total_qty > 0 else new_cost_d
-
-                old_cost_val = ingredient.cost_per_unit
-                ingredient.stock_quantity = total_qty
-                ingredient.cost_per_unit = avg_cost.quantize(Decimal('0.0001'))
-                ingredient.save()
-
-                _log_stock(ingredient, add_qty_d, 'restock', request.user)
-                CostHistory.objects.create(
-                    ingredient=ingredient, old_cost=old_cost_val,
-                    new_cost=ingredient.cost_per_unit, qty_restocked=add_qty_d,
-                    total_paid=total_cost,
-                    recorded_by=request.user if request.user.is_authenticated else None,
-                )
-                _log(request, 'restock_ingredient', ingredient.name,
-                     detail=f"added={add_qty_d} new_avg_cost={ingredient.cost_per_unit}")
-                messages.success(request, f"Restocked '{ingredient.name}'.")
-            except Exception as e:
-                logger.exception("Error restocking ingredient")
-                messages.error(request, "Error restocking ingredient.")
+            messages.error(request, 'Receive new stock through a Purchase Order so inventory and accounting stay in sync.')
 
         elif action == 'edit':
             ing_id = request.POST.get('ingredient_id')
@@ -1002,6 +959,9 @@ def manual_stock_adjust(request):
     ing_id = request.POST.get('ingredient_id')
     action_type = request.POST.get('action_type', 'add')
     note = str(request.POST.get('note', ''))[:200].strip()
+    if not note:
+        messages.error(request, 'Give a reason for the stock correction.')
+        return redirect('dashboard')
 
     if action_type not in ('add', 'subtract', 'set'):
         messages.error(request, 'Invalid action type.')
@@ -1020,6 +980,8 @@ def manual_stock_adjust(request):
         with transaction.atomic():
             ingredient = Ingredient.objects.select_for_update().get(pk=ingredient.pk)
             old_qty = ingredient.stock_quantity
+            if ingredient.cost_per_unit < 0:
+                raise ValueError('Ingredient cost is invalid. Correct it before adjusting stock.')
             if action_type == 'add':
                 change = qty
                 ingredient.stock_quantity = old_qty + qty
@@ -1036,8 +998,10 @@ def manual_stock_adjust(request):
                 verb = f'set to {qty}'
 
             ingredient.save(update_fields=['stock_quantity'])
-            _log_stock(ingredient, change, 'manual', request.user,
-                       note=note or f'Manual adjustment: {verb}')
+            stock_log = _log_stock(ingredient, change, 'manual', request.user,
+                                   note=note)
+            from accounting.utils import post_stock_adjustment_journal
+            post_stock_adjustment_journal(ingredient, change, request.user, stock_log)
         _log(request, 'edit_ingredient', ingredient.name,
              detail=f'Manual stock adjustment: {verb} {ingredient.unit}. Note: {note}')
         messages.success(request,
@@ -1301,16 +1265,14 @@ def pdf_report_financial(request):
     for order in orders:
         order_date = order.created_at.strftime('%Y-%m-%d')
         order_time = order.created_at.strftime('%H:%M')
-        for oi in order.items.all():
-            if not oi.menu_item: continue
-            unit_cost = sum(
-                float(_convert_to_stock_unit(r.quantity_required, r.recipe_unit, r.ingredient.unit))
-                * float(r.ingredient.cost_per_unit)
-                for r in oi.menu_item.ingredients.all())
+        order_items = list(order.items.all())
+        net_revenues = net_line_revenues(order, order_items)
+        for oi in order_items:
             qty = oi.quantity;
+            full_cost = float(line_cogs(oi))
+            unit_cost = full_cost / qty if qty else 0
             sale_price = float(oi.price_at_order)
-            full_cost = unit_cost * qty;
-            full_revenue = sale_price * qty
+            full_revenue = float(net_revenues[oi.pk])
             profit = full_revenue - full_cost
             grand_cost += full_cost;
             grand_revenue += full_revenue;
@@ -1319,7 +1281,7 @@ def pdf_report_financial(request):
                 Paragraph(order.order_number, norm8),
                 Paragraph(order_date, norm8),
                 Paragraph(order_time, norm8),
-                Paragraph(oi.menu_item.name, norm8),
+                Paragraph(oi.menu_item.name if oi.menu_item else '[Deleted menu item]', norm8),
                 Paragraph(f"{unit_cost:.2f}", norm8),
                 Paragraph(f"{sale_price:.2f}", norm8),
                 Paragraph(str(qty), norm8),
@@ -1341,15 +1303,18 @@ def pdf_report_financial(request):
     t.setStyle(ts)
     story.append(t)
     story.append(Spacer(1, 0.6 * cm))
-    monthly_payroll = float(sum(e.salary for e in Employee.objects.filter(is_active=True)))
-    net_profit_val = grand_profit - monthly_payroll
+    from accounting.reporting import profit_loss_totals
+    pnl = profit_loss_totals(date_from_str, date_to_str)
+    net_profit_val = float(pnl['net_profit'])
     summary = [
-        [Paragraph('Total Ingredient Cost', norm8), Paragraph(f'{grand_cost:.2f} EGP', norm8)],
-        [Paragraph('Total Revenue', norm8), Paragraph(f'{grand_revenue:.2f} EGP', norm8)],
-        [Paragraph('Gross Profit', norm8), Paragraph(f'{grand_profit:.2f} EGP', norm8)],
-        [Paragraph('Monthly Payroll', norm8), Paragraph(f'- {monthly_payroll:.2f} EGP',
+        [Paragraph('Posted Sales Revenue', norm8), Paragraph(f'{pnl["sales"]:.2f} EGP', norm8)],
+        [Paragraph('Posted COGS', norm8), Paragraph(f'{pnl["cogs"]:.2f} EGP', norm8)],
+        [Paragraph('Posted Gross Profit', norm8), Paragraph(f'{pnl["gross_profit"]:.2f} EGP', norm8)],
+        [Paragraph('Other Revenue', norm8), Paragraph(f'{pnl["other_revenue"]:.2f} EGP', norm8)],
+        [Paragraph('Payroll Posted', norm8), Paragraph(f'- {pnl["payroll"]:.2f} EGP',
                                                         ParagraphStyle('red', fontName='Helvetica', fontSize=8,
                                                                        textColor=colors.HexColor('#dc2626')))],
+        [Paragraph('Other Expenses incl. Damage', norm8), Paragraph(f'- {pnl["operating"] + pnl["damage"] + pnl["other_expenses"]:.2f} EGP', norm8)],
         [Paragraph('<b>Net Profit</b>', bold8), Paragraph(f'<b>{net_profit_val:.2f} EGP</b>',
                                                           ParagraphStyle('profit', fontName='Helvetica-Bold',
                                                                          fontSize=8,
@@ -1363,8 +1328,8 @@ def pdf_report_financial(request):
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('LINEBELOW', (0, 2), (-1, 2), 0.5, MID_GREY),
-        ('LINEABOVE', (0, 4), (-1, 4), 1, ORANGE),
-        ('BACKGROUND', (0, 4), (-1, 4), LIGHT_ORANGE),
+        ('LINEABOVE', (0, -1), (-1, -1), 1, ORANGE),
+        ('BACKGROUND', (0, -1), (-1, -1), LIGHT_ORANGE),
     ]))
     story.append(st)
     doc.build(story)
@@ -1989,14 +1954,7 @@ def shift_report(request):
     monthly_payroll = sum((e.salary for e in Employee.objects.filter(is_active=True)), Decimal('0'))
     daily_payroll = (monthly_payroll / 30).quantize(Decimal('0.01'))
 
-    ingredient_cost = Decimal('0')
-    for order in orders:
-        for oi in order.items.all():
-            if oi.menu_item:
-                for recipe in oi.menu_item.ingredients.all():
-                    sq = _convert_to_stock_unit(
-                        recipe.quantity_required, recipe.recipe_unit, recipe.ingredient.unit)
-                    ingredient_cost += sq * recipe.ingredient.cost_per_unit * oi.quantity
+    ingredient_cost = sum((line_cogs(oi) for order in orders for oi in order.items.all()), Decimal('0'))
 
     net_profit = total_revenue - ingredient_cost - daily_payroll - total_expenses
 
@@ -2038,19 +1996,7 @@ def shift_report_pdf(request):
     total_expenses = sum(e.amount for e in day_expenses)
     monthly_payroll = sum((e.salary for e in Employee.objects.filter(is_active=True)), Decimal('0'))
     daily_payroll = (monthly_payroll / 30).quantize(Decimal('0.01'))
-    ingredient_cost = Decimal('0')
-
-    for order in orders:
-        for oi in order.items.all():
-            if oi.menu_item:
-                _cogs = getattr(oi, 'cogs_at_sale', None)
-                if _cogs and _cogs > 0:
-                    ingredient_cost += _cogs
-                else:
-                    for recipe in oi.menu_item.ingredients.all():
-                        sq = _convert_to_stock_unit(
-                            recipe.quantity_required, recipe.recipe_unit, recipe.ingredient.unit)
-                        ingredient_cost += sq * recipe.ingredient.cost_per_unit * oi.quantity
+    ingredient_cost = sum((line_cogs(oi) for order in orders for oi in order.items.all()), Decimal('0'))
 
     net_profit = total_revenue - ingredient_cost - daily_payroll - total_expenses
 
@@ -2319,16 +2265,14 @@ def excel_report_financial(request):
     r = 3
     grand_cost = grand_revenue = grand_profit = 0.0
     for order in orders:
-        for oi in order.items.all():
-            if not oi.menu_item: continue
-            unit_cost = sum(
-                float(_convert_to_stock_unit(rec.quantity_required, rec.recipe_unit, rec.ingredient.unit))
-                * float(rec.ingredient.cost_per_unit)
-                for rec in oi.menu_item.ingredients.all())
+        order_items = list(order.items.all())
+        net_revenues = net_line_revenues(order, order_items)
+        for oi in order_items:
             qty = oi.quantity;
+            fc = float(line_cogs(oi))
+            unit_cost = fc / qty if qty else 0
             sale = float(oi.price_at_order)
-            fc = unit_cost * qty;
-            fr = sale * qty;
+            fr = float(net_revenues[oi.pk])
             prof = fr - fc
             grand_cost += fc;
             grand_revenue += fr;
@@ -2337,7 +2281,7 @@ def excel_report_financial(request):
                 order.order_number,
                 order.created_at.strftime('%Y-%m-%d'),
                 order.created_at.strftime('%H:%M'),
-                oi.menu_item.name,
+                oi.menu_item.name if oi.menu_item else '[Deleted menu item]',
                 round(unit_cost, 2), round(sale, 2), qty,
                 round(fc, 2), round(fr, 2), round(prof, 2)
             ], 1):
@@ -2357,13 +2301,16 @@ def excel_report_financial(request):
     ws2 = wb.create_sheet('Summary')
     ws2.column_dimensions['A'].width = 28
     ws2.column_dimensions['B'].width = 18
-    monthly_payroll = float(sum(e.salary for e in Employee.objects.filter(is_active=True)))
-    net_profit = grand_profit - monthly_payroll
+    from accounting.reporting import profit_loss_totals
+    pnl = profit_loss_totals(date_from_str, date_to_str)
+    net_profit = float(pnl['net_profit'])
     summary = [
-        ('Total Ingredient Cost', grand_cost),
-        ('Total Revenue', grand_revenue),
-        ('Gross Profit', grand_profit),
-        ('Monthly Payroll (deduction)', -monthly_payroll),
+        ('Posted Sales Revenue', float(pnl['sales'])),
+        ('Posted COGS', float(pnl['cogs'])),
+        ('Posted Gross Profit', float(pnl['gross_profit'])),
+        ('Other Revenue', float(pnl['other_revenue'])),
+        ('Payroll Posted', -float(pnl['payroll'])),
+        ('Other Expenses incl. Damage', -float(pnl['operating'] + pnl['damage'] + pnl['other_expenses'])),
         ('Net Profit', net_profit),
     ]
     ws2['A1'].value = 'Summary'
@@ -2512,16 +2459,15 @@ def excel_report_sales(request):
     ws_items = wb.create_sheet('Top Items')
     item_stats = {}
     for order in orders:
-        for oi in order.items.all():
-            if not oi.menu_item: continue
-            n = oi.menu_item.name
+        order_items = list(order.items.all())
+        net_revenues = net_line_revenues(order, order_items)
+        for oi in order_items:
+            n = oi.menu_item.name if oi.menu_item else '[Deleted menu item]'
             if n not in item_stats:
                 item_stats[n] = {'qty': 0, 'revenue': Decimal('0'), 'cost': Decimal('0')}
             item_stats[n]['qty'] += oi.quantity
-            item_stats[n]['revenue'] += oi.price_at_order * oi.quantity
-            for rec in oi.menu_item.ingredients.all():
-                sq = _convert_to_stock_unit(rec.quantity_required, rec.recipe_unit, rec.ingredient.unit)
-                item_stats[n]['cost'] += sq * rec.ingredient.cost_per_unit * oi.quantity
+            item_stats[n]['revenue'] += net_revenues[oi.pk]
+            item_stats[n]['cost'] += line_cogs(oi)
 
     ws_items.row_dimensions[1].height = 26
     ws_items.cell(row=1, column=1,
