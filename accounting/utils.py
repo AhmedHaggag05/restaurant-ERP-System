@@ -40,6 +40,7 @@ def _ensure_coa():
         ('2000', 'Accounts Payable',        'liability'),
         ('3000', 'Retained Earnings',       'equity'),
         ('4000', 'Sales Revenue',           'revenue'),
+        ('4200', 'Inventory Adjustment Gain', 'revenue'),
         ('5000', 'Cost of Goods Sold',      'expense'),
         ('5100', 'Payroll Expense',         'expense'),
         ('5200', 'Operating Expenses',      'expense'),
@@ -173,6 +174,41 @@ def post_payroll_journal(salary_run, user=None):
     if advances > 0:
         lines.append(JournalLine(journal_entry=je, account=acc['5300'], side='credit', amount=advances, description='Advance deductions'))
     JournalLine.objects.bulk_create(lines)
+
+
+def post_advance_payment_journal(advance, user=None):
+    """Cash paid to an employee becomes a recoverable advance asset."""
+    acc = _ensure_coa()
+    entry = JournalEntry.objects.create(
+        date=advance.paid_at.date(),
+        description=f"Advance paid to {advance.employee.full_name}",
+        source='advance', source_id=advance.id, created_by=user,
+    )
+    JournalLine.objects.bulk_create([
+        JournalLine(journal_entry=entry, account=acc['5300'], side='debit',
+                    amount=advance.amount, description='Employee advance'),
+        JournalLine(journal_entry=entry, account=acc['1000'], side='credit',
+                    amount=advance.amount, description='Cash paid'),
+    ])
+
+
+def post_stock_adjustment_journal(ingredient, quantity_change, user=None, stock_log=None):
+    """Value a physical stock correction at the current weighted average cost."""
+    value = (abs(quantity_change) * ingredient.cost_per_unit).quantize(Decimal('0.01'))
+    if value == 0:
+        return
+    acc = _ensure_coa()
+    debit, credit = (('1200', '4200') if quantity_change > 0 else ('5400', '1200'))
+    detail = stock_log.note if stock_log else 'Manual stock correction'
+    entry = JournalEntry.objects.create(
+        date=_get_today(), description=f"Stock correction: {ingredient.name} — {detail}"[:255],
+        source='adjustment', source_id=stock_log.pk if stock_log else ingredient.pk,
+        created_by=user,
+    )
+    JournalLine.objects.bulk_create([
+        JournalLine(journal_entry=entry, account=acc[debit], side='debit', amount=value),
+        JournalLine(journal_entry=entry, account=acc[credit], side='credit', amount=value),
+    ])
 
 
 def post_expense_journal(expense, user=None):

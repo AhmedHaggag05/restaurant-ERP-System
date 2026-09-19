@@ -5,7 +5,7 @@
 <div class="erp-page-header">
     <div>
         <h1 class="erp-page-title">General Financial Report</h1>
-        <p class="erp-page-sub">{{ period }}</p>
+        <p class="erp-page-sub">{{ period }} · P&amp;L uses posted journals; item sales use order dates</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
         <a href="{% url 'reports:hub' %}" class="btn btn-light btn-erp"><i class="bi bi-arrow-left me-1"></i>Reports</a>
@@ -19,6 +19,9 @@
 </div>
 
 <!-- Date filter -->
+{% if unknown_cost_count %}<div class="alert alert-warning" role="status">
+    {{ unknown_cost_count }} older order line{{ unknown_cost_count|pluralize }} have no recorded ingredient cost. Cost and profit figures for those sales may be understated.
+</div>{% endif %}
 <form method="get" class="d-flex gap-2 align-items-center mb-4 flex-wrap">
     <label class="erp-form-label mb-0">From</label>
     <input type="date" name="date_from" value="{{ date_from }}" class="erp-input" style="width:160px;">
@@ -68,8 +71,9 @@
                 <tr><td class="text-muted">COGS</td>         <td class="text-end text-danger">- {{ total_cogs|floatformat:2 }}</td></tr>
                 <tr style="border-top:1px solid #f0f0f0;"><td class="py-1 fw-semibold">Gross Profit</td><td class="text-end fw-bold">{{ gross_profit|floatformat:2 }}</td></tr>
                 <tr><td class="text-muted" style="font-size:.8rem;">Gross Margin</td><td class="text-end text-muted" style="font-size:.8rem;">{{ gross_margin }}%</td></tr>
-                <tr><td class="text-muted">Expenses</td>     <td class="text-end text-danger">- {{ total_exp|floatformat:2 }}</td></tr>
-                <tr><td class="text-muted">Payroll</td>      <td class="text-end text-danger">- {{ payroll|floatformat:2 }}</td></tr>
+                <tr><td class="text-muted">Other Expenses incl. Damage</td><td class="text-end text-danger">- {{ total_exp|floatformat:2 }}</td></tr>
+                <tr><td class="text-muted">Payroll Posted</td><td class="text-end text-danger">- {{ payroll|floatformat:2 }}</td></tr>
+                {% if other_revenue %}<tr><td class="text-muted">Other Revenue</td><td class="text-end">{{ other_revenue|floatformat:2 }}</td></tr>{% endif %}
                 <tr style="border-top:2px solid #FF4500;margin-top:.5rem;">
                     <td class="pt-2 fw-bold">Net Profit</td>
                     <td class="text-end fw-bold pt-2" style="color:{% if net_profit >= 0 %}#FF4500{% else %}#dc2626{% endif %};">{{ net_profit|floatformat:2 }} EGP</td>
@@ -82,7 +86,7 @@
     <!-- Item breakdown -->
     <div class="col-md-8">
         <div class="erp-card p-4">
-            <div class="erp-card-header px-0 pt-0 mb-3"><i class="bi bi-list-ol me-1"></i> Sales by Menu Item</div>
+            <div class="erp-card-header px-0 pt-0 mb-3"><i class="bi bi-list-ol me-1"></i> Order Activity by Menu Item</div>
             <div class="table-responsive">
                 <table class="erp-table">
                     <thead>

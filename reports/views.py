@@ -12,6 +12,8 @@ from django.http import HttpResponse
 from django.shortcuts import render
 
 from core.views import manager_required
+from core.financials import line_cogs, net_line_revenues
+from accounting.reporting import profit_loss_totals
 from core.models import (Order, OrderItem, MenuItem, MenuCategory,
                           Ingredient, Employee, Expense,
                           StockLog, CostHistory, ActivityLog, DamagedStock)
@@ -196,34 +198,29 @@ def _convert_to_stock_unit(qty, recipe_unit, stock_unit):
 # ═══════════════════════════════════════════════════════════════════════════════
 def _build_finance_general(df, dt):
     orders = Order.objects.filter(status='active').prefetch_related(
-        'items__menu_item__ingredients__ingredient').order_by('created_at')
+        'items__menu_item__category').order_by('created_at')
     orders = _filter_by_date(orders, df, dt)
 
     item_map   = {}
-    total_rev  = Decimal('0')
-    total_cogs = Decimal('0')
+    order_revenue = Decimal('0')
     n_orders   = 0
+    unknown_cost_count = 0
 
     for order in orders:
         n_orders += 1
-        for oi in order.items.all():
+        order_revenue += order.total_price
+        order_items = list(order.items.all())
+        net_revenues = net_line_revenues(order, order_items)
+        for oi in order_items:
+            if not oi.stock_snapshot_ready and not oi.cogs_at_sale:
+                unknown_cost_count += 1
             mi = oi.menu_item
-            if not mi:
-                continue
-            mid = mi.id
-            _snap = getattr(oi, 'cogs_at_sale', None)
-            if _snap and _snap > 0:
-                cogs_unit = _snap / oi.quantity
-            else:
-                cogs_unit = Decimal(str(sum(
-                    _convert_to_stock_unit(r.quantity_required, r.recipe_unit, r.ingredient.unit)
-                    * float(r.ingredient.cost_per_unit)
-                    for r in mi.ingredients.all()
-                )))
+            mid = mi.id if mi else 'deleted'
+            item_cogs = line_cogs(oi)
             if mid not in item_map:
                 item_map[mid] = {
-                    'name':     mi.name,
-                    'category': mi.category.name if mi.category else '—',
+                    'name':     mi.name if mi else '[Deleted menu item]',
+                    'category': mi.category.name if mi and mi.category else '—',
                     'price':    float(oi.price_at_order),
                     'qty':      0,
                     'revenue':  Decimal('0'),
@@ -231,20 +228,19 @@ def _build_finance_general(df, dt):
                 }
             qty = oi.quantity
             item_map[mid]['qty']     += qty
-            item_map[mid]['revenue'] += oi.price_at_order * qty
-            item_map[mid]['cogs']    += cogs_unit * qty
-            total_rev  += oi.price_at_order * qty
-            total_cogs += cogs_unit * qty
+            item_map[mid]['revenue'] += net_revenues[oi.pk]
+            item_map[mid]['cogs']    += item_cogs
 
     expenses_qs  = _filter_by_date(Expense.objects.filter(is_voided=False), df, dt, field='date')
-    total_exp    = expenses_qs.aggregate(t=Sum('amount'))['t'] or Decimal('0')
-    payroll      = (Employee.objects.filter(is_active=True)
-                   .aggregate(t=Sum('salary'))['t'] or Decimal('0'))
-
-    gross_profit = total_rev - total_cogs
-    net_profit   = gross_profit - total_exp - payroll
+    pnl = profit_loss_totals(df, dt)
+    total_rev = pnl['sales']
+    total_cogs = pnl['cogs']
+    total_exp = pnl['operating'] + pnl['damage'] + pnl['other_expenses']
+    payroll = pnl['payroll']
+    gross_profit = pnl['gross_profit']
+    net_profit = pnl['net_profit']
     gross_margin = (gross_profit / total_rev * 100) if total_rev else Decimal('0')
-    avg_order    = (total_rev / n_orders) if n_orders else Decimal('0')
+    avg_order    = (order_revenue / n_orders) if n_orders else Decimal('0')
 
     items_sorted = sorted(item_map.values(), key=lambda x: x['revenue'], reverse=True)
     for it in items_sorted:
@@ -261,9 +257,13 @@ def _build_finance_general(df, dt):
         'gross_margin': gross_margin.quantize(Decimal('0.01')),
         'total_exp':    total_exp,
         'payroll':      payroll,
+        'other_revenue': pnl['other_revenue'],
+        'unknown_cost_count': unknown_cost_count,
         'net_profit':   net_profit,
         'avg_order':    avg_order,
         'items':        items_sorted,
+        'item_revenue': sum((it['revenue'] for it in items_sorted), Decimal('0')),
+        'item_cogs': sum((it['cogs'] for it in items_sorted), Decimal('0')),
         'expenses_qs':  expenses_qs,
     }
 
@@ -275,31 +275,28 @@ def _build_finance_custom(params):
     cat_ids  = params.getlist('cat_ids')  if hasattr(params, 'getlist') else params.get('cat_ids',  [])
 
     orders = Order.objects.filter(status='active').prefetch_related(
-        'items__menu_item__ingredients__ingredient').order_by('created_at')
+        'items__menu_item__category').order_by('created_at')
     orders = _filter_by_date(orders, df, dt)
 
     bucket = {}
+    unknown_cost_count = 0
     for order in orders:
-        for oi in order.items.all():
+        order_items = list(order.items.all())
+        net_revenues = net_line_revenues(order, order_items)
+        for oi in order_items:
             mi = oi.menu_item
-            if not mi:
+            if item_ids and (not mi or str(mi.id) not in item_ids):
                 continue
-            if item_ids and str(mi.id) not in item_ids:
+            if cat_ids and (not mi or not mi.category or str(mi.category_id) not in cat_ids):
                 continue
-            if cat_ids and (not mi.category or str(mi.category_id) not in cat_ids):
-                continue
-
-            cogs_unit = Decimal(str(sum(
-                _convert_to_stock_unit(r.quantity_required, r.recipe_unit, r.ingredient.unit)
-                * float(r.ingredient.cost_per_unit)
-                for r in mi.ingredients.all()
-            )))
+            if not oi.stock_snapshot_ready and not oi.cogs_at_sale:
+                unknown_cost_count += 1
 
             if group_by == 'item':
-                key, label = mi.id, mi.name
+                key, label = (mi.id, mi.name) if mi else ('deleted', '[Deleted menu item]')
             elif group_by == 'category':
-                key   = mi.category_id or 0
-                label = mi.category.name if mi.category else 'Uncategorised'
+                key   = mi.category_id if mi and mi.category else 0
+                label = mi.category.name if mi and mi.category else 'Uncategorised'
             elif group_by == 'day':
                 key = label = str(order.created_at.date())
             elif group_by == 'week':
@@ -316,8 +313,8 @@ def _build_finance_custom(params):
                                'revenue': Decimal('0'), 'cogs': Decimal('0')}
             qty = oi.quantity
             bucket[key]['qty']     += qty
-            bucket[key]['revenue'] += oi.price_at_order * qty
-            bucket[key]['cogs']    += cogs_unit * qty
+            bucket[key]['revenue'] += net_revenues[oi.pk]
+            bucket[key]['cogs']    += line_cogs(oi)
 
     rows = sorted(bucket.values(), key=lambda x: x['revenue'], reverse=True)
     for row in rows:
@@ -332,6 +329,7 @@ def _build_finance_custom(params):
         'total_rev':  sum(r['revenue'] for r in rows),
         'total_cogs': sum(r['cogs']    for r in rows),
         'total_gp':   sum(r['gp']      for r in rows),
+        'unknown_cost_count': unknown_cost_count,
     }
 
 
@@ -378,8 +376,9 @@ def finance_general_pdf(request):
         [Paragraph('Total COGS',         n8),    Paragraph(f'{data["total_cogs"]:.2f}',   n8)],
         [Paragraph('Gross Profit',       n8),    Paragraph(f'{data["gross_profit"]:.2f}', n8)],
         [Paragraph('Gross Margin',       n8),    Paragraph(f'{data["gross_margin"]:.2f}%',n8)],
-        [Paragraph('Operating Expenses', n8),    Paragraph(f'- {data["total_exp"]:.2f}',  red8)],
-        [Paragraph('Monthly Payroll',    n8),    Paragraph(f'- {data["payroll"]:.2f}',    red8)],
+        [Paragraph('Other Expenses incl. Damage', n8), Paragraph(f'- {data["total_exp"]:.2f}', red8)],
+        [Paragraph('Payroll Posted',     n8),    Paragraph(f'- {data["payroll"]:.2f}',    red8)],
+        [Paragraph('Other Revenue',      n8),    Paragraph(f'{data["other_revenue"]:.2f}', n8)],
         [Paragraph('<b>Net Profit</b>',  b8),
          Paragraph(f'<b>{data["net_profit"]:.2f}</b>', net_color)],
     ]
@@ -400,7 +399,7 @@ def finance_general_pdf(request):
     story.append(kt)
     story.append(Spacer(1, 0.5*cm))
 
-    story.append(Paragraph('<b>Sales Breakdown by Menu Item</b>', b8))
+    story.append(Paragraph('<b>Order Activity by Menu Item (sale date)</b>', b8))
     story.append(Spacer(1, 0.15*cm))
     hdrs  = ['Item', 'Category', 'Qty Sold', 'Revenue', 'COGS', 'Gross Profit', 'Margin %']
     irows = [[Paragraph(f'<b>{h}</b>', b8) for h in hdrs]]
@@ -414,10 +413,10 @@ def finance_general_pdf(request):
             Paragraph(f'{float(it["gp"]):.2f}',    n8),
             Paragraph(f'{float(it["margin"]):.1f}%', n8),
         ])
-    tot_rev  = data['total_rev']
-    tot_cogs = data['total_cogs']
-    tot_gp   = data['gross_profit']
-    tot_mg   = data['gross_margin']
+    tot_rev  = data['item_revenue']
+    tot_cogs = data['item_cogs']
+    tot_gp   = tot_rev - tot_cogs
+    tot_mg   = (tot_gp / tot_rev * 100) if tot_rev else Decimal('0')
     irows.append([
         Paragraph('<b>TOTAL</b>', b8), Paragraph('', n8), Paragraph('', n8),
         Paragraph(f'<b>{tot_rev:.2f}</b>',       b8),
@@ -453,8 +452,9 @@ def finance_general_excel(request):
         ('Total COGS',          float(data['total_cogs'])),
         ('Gross Profit',        float(data['gross_profit'])),
         ('Gross Margin %',      float(data['gross_margin'])),
-        ('Operating Expenses',  float(data['total_exp'])),
-        ('Monthly Payroll',     float(data['payroll'])),
+        ('Other Expenses incl. Damage', float(data['total_exp'])),
+        ('Payroll Posted',      float(data['payroll'])),
+        ('Other Revenue',       float(data['other_revenue'])),
         ('Net Profit',          float(data['net_profit'])),
     ]
     for r, (label, val) in enumerate(kpis, 3):
@@ -467,7 +467,7 @@ def finance_general_excel(request):
                  font_color=_OH if is_net else None)
 
     ws2 = wb.create_sheet('By Menu Item')
-    _xl_title(ws2, f'Sales by Menu Item  |  {data["period"]}')
+    _xl_title(ws2, f'Order Activity by Menu Item  |  {data["period"]}')
     _xl_headers(ws2, [('Item', 28), ('Category', 20), ('Qty Sold', 10),
                       ('Revenue (EGP)', 16), ('COGS (EGP)', 16),
                       ('Gross Profit', 16), ('Margin %', 12)], row=2)
@@ -481,10 +481,10 @@ def finance_general_excel(request):
                      align=_AL_R if ci >= 3 else _AL_L)
     tot_row = len(data['items']) + 3
     _xl_total_row(ws2, tot_row, ['TOTAL', '', '',
-                                  float(data['total_rev']),
-                                  float(data['total_cogs']),
-                                  float(data['gross_profit']),
-                                  float(data['gross_margin'])])
+                                  float(data['item_revenue']),
+                                  float(data['item_cogs']),
+                                  float(data['item_revenue'] - data['item_cogs']),
+                                  float((data['item_revenue'] - data['item_cogs']) / data['item_revenue'] * 100) if data['item_revenue'] else 0])
 
     ws3 = wb.create_sheet('Expenses')
     _xl_title(ws3, f'Operating Expenses  |  {data["period"]}')

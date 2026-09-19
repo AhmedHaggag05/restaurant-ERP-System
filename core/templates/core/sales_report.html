@@ -33,7 +33,7 @@
     <!-- Header -->
     <div class="mb-3">
         <h1 class="section-title mb-1">Financial Report</h1>
-        <p class="text-secondary mb-3">Full P&amp;L — Revenue, COGS, Payroll, Expenses, Net Profit</p>
+        <p class="text-secondary mb-3">Posted journal P&amp;L for the selected accounting dates. Charts below show order activity by sale date.</p>
         <div class="d-flex gap-2 flex-wrap align-items-center">
             <span class="small text-secondary fw-bold text-uppercase me-1" style="letter-spacing:.05em;">Export:</span>
             <a href="{% url 'pdf_report_financial' %}{% if date_from or date_to %}?date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
@@ -60,6 +60,9 @@
     </div>
 
     <!-- Date filter -->
+    {% if unknown_cost_count %}<div class="alert alert-warning" role="status">
+        {{ unknown_cost_count }} older order line{{ unknown_cost_count|pluralize }} have no recorded ingredient cost. Cost and profit figures for those sales may be understated.
+    </div>{% endif %}
     <div class="filter-bar">
         <form method="get" class="row g-2 align-items-end">
             <div class="col-md-4">
@@ -120,15 +123,7 @@
                     <h5 class="fw-bold mb-3">Profit &amp; Loss Statement</h5>
 
                     <div class="pl-row">
-                        <span class="pl-label">Gross Revenue</span>
-                        <span class="pl-value text-dark">{{ total_revenue|floatformat:2 }} EGP</span>
-                    </div>
-                    <div class="pl-row">
-                        <span class="pl-label text-danger">— Discounts Given</span>
-                        <span class="pl-value text-danger">-{{ total_discounts|floatformat:2 }} EGP</span>
-                    </div>
-                    <div class="pl-row">
-                        <span class="pl-label fw-bold">Net Revenue</span>
+                        <span class="pl-label fw-bold">Sales Revenue (after discounts)</span>
                         <span class="pl-value">{{ total_revenue|floatformat:2 }} EGP</span>
                     </div>
 
@@ -152,6 +147,18 @@
                         <span class="pl-label text-danger">— Other Expenses</span>
                         <span class="pl-value text-danger">-{{ total_expenses|floatformat:2 }} EGP</span>
                     </div>
+                    {% if damage_expense %}<div class="pl-row">
+                        <span class="pl-label text-danger">— Damaged Stock</span>
+                        <span class="pl-value text-danger">-{{ damage_expense|floatformat:2 }} EGP</span>
+                    </div>{% endif %}
+                    {% if other_expenses %}<div class="pl-row">
+                        <span class="pl-label text-danger">— Other Account Expenses</span>
+                        <span class="pl-value text-danger">-{{ other_expenses|floatformat:2 }} EGP</span>
+                    </div>{% endif %}
+                    {% if other_revenue %}<div class="pl-row">
+                        <span class="pl-label">Other Revenue / Stock Gains</span>
+                        <span class="pl-value">{{ other_revenue|floatformat:2 }} EGP</span>
+                    </div>{% endif %}
 
                     <div class="pl-total mt-2">
                         <div class="d-flex justify-content-between align-items-center">
@@ -164,7 +171,7 @@
                     </div>
 
                     {% if expense_by_cat %}
-                    <h6 class="fw-bold mt-4 mb-2 small text-uppercase text-secondary">Expenses by Category</h6>
+                    <h6 class="fw-bold mt-4 mb-2 small text-uppercase text-secondary">Active Expenses by Category (operational)</h6>
                     {% for cat, amt in expense_by_cat.items %}
                     <div class="pl-row">
                         <span class="pl-label small">{{ cat }}</span>

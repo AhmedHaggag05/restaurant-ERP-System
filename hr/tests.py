@@ -8,7 +8,7 @@ from django.test import TestCase
 from accounting.models import JournalEntry, JournalLine
 from core.models import Employee
 from .models import Advance, SalaryLine, SalaryRun
-from .payroll import mark_salary_run_paid
+from .payroll import mark_salary_run_paid, pay_advance
 
 
 class PayrollIntegrityTests(TestCase):
@@ -53,9 +53,66 @@ class PayrollIntegrityTests(TestCase):
         self.assertEqual(self.run.status, 'draft')
 
     def test_advance_larger_than_pay_is_not_silently_written_off(self):
-        Advance.objects.create(employee=self.employee, amount=Decimal('150.00'), status='approved')
+        Advance.objects.create(employee=self.employee, amount=Decimal('150.00'), status='paid')
         self.client.post('/hr/payroll/create/', {
             'period_start': '2026-02-01', 'period_end': '2026-02-28',
         })
         self.assertEqual(SalaryRun.objects.count(), 1)
         self.assertFalse(Advance.objects.filter(deducted_in__isnull=False).exists())
+
+    def test_approval_does_not_deduct_until_separate_payment(self):
+        advance = Advance.objects.create(employee=self.employee, amount=Decimal('30.00'), status='approved')
+        self.client.post('/hr/payroll/create/', {
+            'period_start': '2026-02-01', 'period_end': '2026-02-28',
+        })
+        advance.refresh_from_db()
+        self.assertIsNone(advance.deducted_in)
+        self.assertEqual(SalaryRun.objects.count(), 2)
+        paid = pay_advance(advance.pk, self.user)
+        self.assertEqual(paid.status, 'paid')
+        self.assertIsNotNone(paid.paid_at)
+        entry = JournalEntry.objects.get(source='advance', source_id=advance.pk)
+        self.assertTrue(entry.is_balanced())
+        self.assertEqual(JournalLine.objects.get(journal_entry=entry, side='debit').account.code, '5300')
+        self.client.post('/hr/payroll/create/', {
+            'period_start': '2026-03-01', 'period_end': '2026-03-31',
+        })
+        advance.refresh_from_db()
+        self.assertIsNotNone(advance.deducted_in)
+        self.assertEqual(advance.deducted_in.lines.get().advances, Decimal('30.00'))
+        with self.assertRaisesMessage(ValueError, 'approved, unpaid'):
+            pay_advance(advance.pk, self.user)
+
+    def test_failed_advance_journal_rolls_back_payment(self):
+        advance = Advance.objects.create(employee=self.employee, amount=Decimal('30.00'), status='approved')
+        with patch('hr.payroll.post_advance_payment_journal', side_effect=RuntimeError('test failure')):
+            with self.assertRaises(RuntimeError):
+                pay_advance(advance.pk, self.user)
+        advance.refresh_from_db()
+        self.assertEqual(advance.status, 'approved')
+        self.assertIsNone(advance.paid_at)
+
+    def test_old_draft_reservation_can_be_released_without_payment(self):
+        advance = Advance.objects.create(
+            employee=self.employee, amount=Decimal('30.00'),
+            status='approved', deducted_in=self.run)
+        self.line.advances = Decimal('30.00')
+        self.line.net = Decimal('60.00')
+        self.line.save()
+        self.run.total_net = Decimal('60.00')
+        self.run.save()
+        self.client.post(f'/hr/payroll/{self.run.pk}/', {
+            'action': 'edit_line', 'line_id': self.line.pk,
+            'gross': '-1.00', 'deductions': '10.00',
+        })
+        advance.refresh_from_db()
+        self.assertEqual(advance.deducted_in_id, self.run.pk)
+        self.client.post(f'/hr/payroll/{self.run.pk}/', {
+            'action': 'edit_line', 'line_id': self.line.pk,
+            'gross': '100.00', 'deductions': '10.00',
+        })
+        advance.refresh_from_db()
+        self.line.refresh_from_db()
+        self.assertIsNone(advance.deducted_in)
+        self.assertEqual(self.line.advances, Decimal('0.00'))
+        self.assertEqual(self.line.net, Decimal('90.00'))

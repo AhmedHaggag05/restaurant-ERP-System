@@ -18,3 +18,25 @@ Voiding an older order uses its historical stock logs when those records exist.
 If the log is incomplete, the operation stops for manual reconciliation.
 Previously edited or deleted expenses may already have mismatched accounting
 entries; this migration does not reconstruct those historical transactions.
+
+NEXT FINANCE UPDATE
+
+Before merging the next finance branch, back up the production database.
+- hr.0003 adds the paid status and payment audit fields to employee advances.
+- accounting.0005 updates the adjustment source label used in the journal UI.
+
+Approval now authorizes an advance; it does not deduct payroll or post cash.
+The manager must click Mark paid after the employee actually receives the
+money. That action posts Dr Employee Advances / Cr Cash. A later salary run
+reserves only paid advances and clears the asset when payroll is paid.
+
+Existing approved advances remain approved and are not automatically marked
+paid: the old data cannot prove whether cash was handed over. Review them
+before paying a salary run. An old draft run that reserved an unpaid advance
+must have its affected salary line edited to release that reservation; a
+previously paid advance can instead be marked paid before the run is paid.
+
+Manual stock corrections now post an inventory gain or wastage journal at
+current average cost. The old hidden direct-restock action is disabled;
+receive purchased goods through Purchase Orders. Historical stock changes
+and financial reports are not automatically reconstructed.

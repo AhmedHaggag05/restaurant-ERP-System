@@ -425,10 +425,11 @@
                 <input type="hidden" name="ingredient_id" id="zero-ing-id">
                 <input type="hidden" name="action_type" value="set">
                 <input type="hidden" name="quantity" value="0">
-                <input type="hidden" name="note" value="Manual zero-out from dashboard">
                 <div class="modal-body p-4">
                     <p class="mb-2">Set stock of <strong id="zero-ing-name"></strong> to <strong>0</strong>?</p>
                     <p class="text-secondary small mb-0">Current stock: <span id="zero-ing-stock" class="fw-semibold text-danger"></span></p>
+                    <label class="form-label small fw-bold mt-3" for="zero-stock-reason">Reason</label>
+                    <input id="zero-stock-reason" name="note" class="form-control" maxlength="200" required placeholder="e.g. physical count correction">
                 </div>
                 <div class="modal-footer border-0 pt-0 p-4 gap-2">
                     <button type="button" class="btn btn-light rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
@@ -514,8 +515,8 @@
 
                     <!-- Note -->
                     <div class="mb-1">
-                        <label class="form-label text-secondary small fw-bold text-uppercase">Note / Reason <span class="text-muted fw-normal">(optional)</span></label>
-                        <input type="text" name="note" class="form-control rounded-3" placeholder="e.g. Wastage, spoilage, physical count correction...">
+                        <label class="form-label text-secondary small fw-bold text-uppercase">Reason</label>
+                        <input type="text" name="note" class="form-control rounded-3" maxlength="200" required placeholder="e.g. Wastage, spoilage, physical count correction...">
                     </div>
                 </div>
                 <div class="modal-footer border-0 pt-0 p-4">

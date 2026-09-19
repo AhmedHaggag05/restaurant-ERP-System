@@ -136,3 +136,43 @@ class ExpenseIntegrityTests(TestCase):
         with patch('accounting.utils.post_expense_journal', side_effect=RuntimeError('test failure')):
             self.client.post('/expenses/add/', {'title': 'Rent', 'amount': '125.00'})
         self.assertFalse(Expense.objects.exists())
+
+
+class StockCorrectionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('stock-manager', password='safe-test-password')
+        self.user.profile.role = 'manager'
+        self.user.profile.save()
+        self.client.force_login(self.user)
+        self.ingredient = Ingredient.objects.create(
+            name='Rice', unit='kg', stock_quantity=Decimal('5.000'),
+            cost_per_unit=Decimal('20.0000'))
+
+    def test_stock_correction_posts_inventory_gain(self):
+        self.client.post('/manage-ingredients/adjust/', {
+            'ingredient_id': self.ingredient.pk, 'action_type': 'add',
+            'quantity': '2.000', 'note': 'Physical count correction',
+        })
+        self.ingredient.refresh_from_db()
+        self.assertEqual(self.ingredient.stock_quantity, Decimal('7.000'))
+        entry = JournalEntry.objects.get(source='adjustment', source_id=StockLog.objects.get().pk)
+        self.assertTrue(entry.is_balanced())
+        self.assertEqual(JournalLine.objects.get(journal_entry=entry, side='credit').account.code, '4200')
+
+    def test_failed_correction_journal_rolls_back_stock(self):
+        with patch('accounting.utils.post_stock_adjustment_journal', side_effect=RuntimeError('test failure')):
+            self.client.post('/manage-ingredients/adjust/', {
+                'ingredient_id': self.ingredient.pk, 'action_type': 'subtract',
+                'quantity': '2.000', 'note': 'Physical count correction',
+            })
+        self.ingredient.refresh_from_db()
+        self.assertEqual(self.ingredient.stock_quantity, Decimal('5.000'))
+        self.assertFalse(StockLog.objects.exists())
+
+    def test_legacy_restock_shortcut_cannot_change_stock(self):
+        self.client.post('/manage-ingredients/', {
+            'action': 'restock', 'ingredient_id': self.ingredient.pk,
+            'add_quantity': '2', 'total_cost': '40',
+        })
+        self.ingredient.refresh_from_db()
+        self.assertEqual(self.ingredient.stock_quantity, Decimal('5.000'))

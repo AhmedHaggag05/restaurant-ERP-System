@@ -149,7 +149,7 @@ def create_salary_run(request):
             # from being silently marked "deducted" without ever reducing anyone's net pay.
             reservable_advances = list(
                 Advance.objects.select_for_update().filter(
-                    employee__in=active_employees, status='approved', deducted_in__isnull=True)
+                    employee__in=active_employees, status='paid', deducted_in__isnull=True)
             )
             adv_totals = {}
             for a in reservable_advances:
@@ -233,12 +233,16 @@ def salary_run_detail(request, pk):
                     messages.error(request, 'Gross and deductions must be valid numbers.')
                     return redirect('hr:salary_run_detail', pk=pk)
                 reserved = (Advance.objects.filter(deducted_in=run, employee=line.employee,
-                                                   status='approved')
+                                                   status='paid')
                             .aggregate(total=Sum('amount'))['total'] or Decimal('0'))
                 if (not gross.is_finite() or not deductions.is_finite() or
                         gross < 0 or deductions < 0 or gross < deductions + reserved):
                     messages.error(request, 'Gross pay must cover nonnegative deductions and reserved advances.')
                     return redirect('hr:salary_run_detail', pk=pk)
+                # Older draft runs may still reserve advances approved before
+                # payment was tracked separately. Editing releases unpaid ones.
+                Advance.objects.filter(deducted_in=run, employee=line.employee,
+                                       status='approved').update(deducted_in=None)
                 line.gross = gross
                 line.deductions = deductions
                 line.advances = reserved
@@ -273,7 +277,7 @@ def advances(request):
             except InvalidOperation:
                 messages.error(request, "Advance amount must be a valid number.")
                 return redirect('hr:advances')
-            if amount <= 0:
+            if not amount.is_finite() or amount <= 0 or amount.as_tuple().exponent < -2:
                 messages.error(request, "Advance amount must be greater than zero.")
                 return redirect('hr:advances')
             reason = request.POST.get('reason', '').strip()
@@ -294,6 +298,17 @@ def advances(request):
             adv.approved_by = request.user
             adv.save()
             messages.success(request, "Advance approved.")
+        elif action == 'pay':
+            try:
+                from .payroll import pay_advance
+                pay_advance(request.POST.get('advance_id'), request.user)
+            except ValueError as exc:
+                messages.error(request, str(exc))
+            except Exception:
+                logger.exception('Failed to pay advance %s', request.POST.get('advance_id'))
+                messages.error(request, 'Advance payment could not be recorded. No changes were saved.')
+            else:
+                messages.success(request, 'Advance marked paid and accounting entry posted.')
         elif action == 'reject':
             adv = get_object_or_404(Advance, id=request.POST.get('advance_id'), status='pending')
             adv.status = 'rejected'
@@ -301,10 +316,11 @@ def advances(request):
             messages.success(request, "Advance rejected.")
         return redirect('hr:advances')
 
-    all_advances = Advance.objects.select_related('employee', 'approved_by').all()
+    all_advances = Advance.objects.select_related('employee', 'approved_by', 'paid_by').all()
     active_employees = Employee.objects.filter(is_active=True).order_by('full_name')
-    pending_total = all_advances.filter(status='approved').aggregate(t=Sum('amount'))['t'] or 0
+    pending_total = all_advances.filter(status='paid').aggregate(t=Sum('amount'))['t'] or 0
+    approved_total = all_advances.filter(status='approved').aggregate(t=Sum('amount'))['t'] or 0
     return render(request, 'hr/advances.html', {
         'advances': all_advances, 'employees': active_employees,
-        'pending_total': pending_total,
+        'pending_total': pending_total, 'approved_total': approved_total,
     })

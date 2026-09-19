@@ -57,3 +57,7 @@ The browser POS uses `POST /api/create-order/` for order submission and `POST /a
 `build.sh` installs dependencies, collects static files, runs migrations, and creates the cache table during a Render build. Review migrations and back up production data before merging a deployment branch. The application intentionally keeps voided orders in history; it does not permanently delete orders that have stock and accounting records.
 
 Older orders created before the stock-consumption snapshot migration can be voided using their historical stock logs. Their item quantities cannot be edited automatically because a later recipe change makes the original per-item consumption impossible to reconstruct reliably.
+
+Employee advances move through **pending → approved → paid → deducted**. Approval authorizes payment; a manager records the separate cash payment after handing it over. Only paid advances are reserved for payroll deduction. Existing approved advances need review because the old status does not prove payment.
+
+Financial P&L summaries now use posted journal entries for the selected accounting dates. Menu item breakdowns and daily charts describe order activity by sale date, so later order edits can appear in a different accounting period. Direct restocking through the old ingredient action is disabled; use Purchase Orders for goods receipts. Manual stock corrections post an inventory gain or loss journal.
